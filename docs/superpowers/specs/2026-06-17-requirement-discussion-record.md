@@ -365,4 +365,126 @@ clearEvent(protocolID, frameID=0, "device_offline")
 
 ---
 
+## 9. 设计方案评审（v1 → v2）
+
+> 讨论日期：2026-06-17
+
+### 9.1 用户提出的三条修改意见
+
+**意见 1：Event 应单独封装，addEvent 入参为 Event**
+
+> "event 应该单独封装，addEvent 入参应该是 event，这样如果 event 本身发生了变更，eventmanager 的接口不用改动。其次应该提供创建 event 的接口。用户业务在创建 event 的时候就应该指定报警等级和报警具体联动内容，然后调用 addEvent。addEvent 在添加时只需要查事件编号"
+
+**分析：** 原设计 `addEvent(protocolID, frameID, alarmField, level, desc)` 有 5 个参数，若 Event 新增字段则接口必改。改为 `addEvent(const Event&)` 后接口永远稳定，Event 内部变更不影响调用方。
+
+**决策：** 采纳。ExternalAPI 提供 `createAlarm()` 工厂方法，业务创建 Event 时即指定等级和联动，`addEvent(event)` 只做查重+存储+触发。
+
+**意见 2：联动不应只有一个 onAlarm 接口，应使用回调注册**
+
+> "同一级别的不同下位机发过来的故障，管控措施是不一样的，且同一故障联动可能不止一个。因此联动的执行不应该只有一个共同的 onAlarm 接口，是否回调注册的形式更合适"
+
+**分析：** 原设计 `onAlarmActive(event)` 内按等级 switch，同等级所有下位机执行相同联动。但实际上不同下位机同等级故障的管控措施不同（如锅炉紧急→停机，冷却塔紧急→降功率），且同一故障可能触发多个联动（锁UI + 发指令 + 蜂鸣器）。
+
+**决策：** 采纳。LinkageEngine 改为回调注册制：
+- `registerHandler(LinkageAction::Type, handler)` 注册处理器
+- Event 携带 `vector<LinkageAction> activeActions / clearActions`
+- `executeActive(event)` 遍历 actions 按类型分发
+
+**意见 3：前端怎么知道锁哪个控件**
+
+> "联动中包含锁 UI，而 UI 又在前端，前端怎么知道这个事件要锁哪个控件"
+
+**分析：** 原设计中后端只发"有紧急事件"的通知，前端不知具体锁哪个控件。这是前后端通信协议的设计缺口。
+
+**决策：** 采纳。LinkageAction 携带 `target` 语义标识（如 `"panel_operation"`），Socket 消息中增加 `uiActions` 数组携带联动目标。前端维护 `target → QWidget*` 映射表，收到消息后按 target 定位控件。
+
+### 9.2 v1 → v2 核心变更
+
+| 变更点 | v1 原设计 | v2 修订后 |
+|--------|----------|----------|
+| addEvent 入参 | `addEvent(protocolID, frameID, alarmField, level, desc)` — 5 个独立参数 | `addEvent(const Event&)` — Event 值对象 |
+| Event 创建 | addEvent 内部构造 Event 对象 | ExternalAPI 提供 `createAlarm()` 工厂，业务创建时指定联动 |
+| 联动机制 | LinkageEngine 按 `event.effectiveLevel` switch | 回调注册制，Event 携带 `vector<LinkageAction>`，按 type 分发 |
+| LinkageEngine 接口 | `onAlarmActive(event)` / `onAlarmCleared(event)` | `registerHandler()` + `executeActive()` / `executeCleared()` |
+| 新增联动类型 | 修改 LinkageEngine switch 代码 | 定义新枚举值 + registerHandler 一行 |
+| 前后端协议 | 无 uiActions 字段 | 增加 `uiActions: [{action, target}]` |
+| 前端锁控件 | 未定义 | target 语义标识 + 前端 targetMap 映射 |
+
+### 9.3 修订后的模块职责
+
+| 模块 | 职责 |
+|------|------|
+| ExternalAPI | 对外唯一门面：`createAlarm()` 工厂 + `addEvent()` / `clearEvent()` 入口 |
+| EventManager | 活跃事件存储、查重、协调 ConfigManager 计算有效等级 |
+| ConfigManager | 降级映射、屏蔽集合（与 v1 一致） |
+| LinkageEngine | 回调注册、遍历 Event.actions 分发执行（不再按等级 switch） |
+
+### 9.4 产出
+
+v2 修订版设计文档已更新：
+
+📄 `docs/superpowers/specs/2026-06-17-event-mgr-design.md`（版本 v2）
+
+---
+
+## 10. 设计评审与代码审查（v2 补充）
+
+> 讨论日期：2026-06-17
+
+### 10.1 下位机控制指令分发
+
+**用户疑问：**
+
+> "下位机控制指令并非由一个组件完成，而是每个下位机一个单例组件，每个控制指令的参数类型、数量也不一样，这怎么解决？"
+
+**分析：** 原设计中 `setup.cpp` 为 SendCommand 注册了一个通用 handler，通过 `CmdSender::send(protocolID, target, param)` 发送。这在现实中不可行——不同下位机的控制指令由不同的单例组件负责，参数类型和数量各异（如锅炉 `emergency_stop(int reason)` vs 冷却塔 `emergency_stop(bool immediate)`）。
+
+**决策：** 采纳 per-protocolID 注册模式：
+
+- LinkageEngine 新增 `registerHandler(type, protocolID, handler)` 重载
+- 全局 handler（不传 protocolID）：匹配所有 protocolID，用于 LockUI/UnlockUI/Buzzer
+- 按 protocolID 的 handler：仅匹配该下位机的事件，用于 SendCommand
+- 分发时两者都执行：先全局 handler，再 per-protocolID handler
+- 各设备控制单例在初始化时调用 `engine.registerHandler(SendCommand, myProtocolID, handler)`
+- 每个单例内部通过 `target` 字段二次分发到不同签名的私有方法
+
+**产出：** `backend/device_controllers_example.h`（BoilerController / CoolingTowerController 示例）
+
+### 10.2 前后端兼容适配
+
+**用户背景：** "我这个项目现阶段还没有前后端分离，能不能在这个基础上兼容？"
+
+**分析：** LinkageEngine 的回调注册机制天然支持两种部署模式的切换。同一套核心模块，只需在初始化时选择不同 handler：
+- 分离模式：handler 通过 SocketServer 发送 JSON
+- 一体模式：handler 直接调用进程内 Qt widget 方法
+
+**决策：** 引入 `FrontendCallbacks` 接口契约：
+- `createSocketBasedCallbacks()` → 前后端分离
+- `createDirectCallbacks()` → 前后端一体
+- EventManager 构造函数增加可选的 `NotifyCallback` 参数（有回调走回调，无回调走 SocketServer 桩，向后兼容）
+
+**产出：** `backend/frontend_adapter.h`
+
+### 10.3 notifyFrontend 参数修正
+
+**用户指出：**
+
+> "EventManager::notifyFrontend 中 `if (alarmType[0] == 'a')` 这个感觉不太对"
+
+**分析：** 原代码用 `const char* alarmType` 参数，通过首字符判断是 alarm_active（'a'）还是 alarm_cleared（其他）。但 `"alarm_cleared"` 同样以 'a' 开头，导致消除事件时错误地取了 activeActions——这是一个实际 bug。
+
+**决策：** 将参数从 `const char*` 改为 `bool isActive`，内部用三元表达式选择正确的 actions 列表和 JSON type 字段。
+
+### 10.4 v2 补充变更汇总
+
+| 变更点 | 说明 |
+|--------|------|
+| LinkageEngine per-protocolID 注册 | 新增 `registerHandler(type, protocolID, handler)` 重载，分发时先全局后设备 |
+| 设备控制单例 | 各下位机单例自行注册 SendCommand handler，通过 target 字段内部分发 |
+| FrontendCallbacks | 分离/一体两种模式通过同一套后端核心切换，仅 handler 注册不同 |
+| EventManager NotifyCallback | 构造函数可选注入，不注入则走 SocketServer（向后兼容） |
+| notifyFrontend bool 化 | 消除首字符 hack 和 alarm_cleared 取错 actions 的 bug |
+
+---
+
 *记录完毕。本文档供后续需求回顾和设计决策追溯使用。*
