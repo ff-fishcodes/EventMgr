@@ -37,12 +37,13 @@ struct LinkageAction {
     };
 
     Type        type;
-    std::string target;   // UI控件标识 / 指令名称 / 蜂鸣器模式
-    std::string param;    // 附加参数
+    std::string target;          // UI控件标识 / 指令名称 / 蜂鸣器模式
+    std::string param;           // 附加参数
+    int         targetProtocolID; // SendCommand专用：目标下位机；0=与事件源相同（默认）
 
-    LinkageAction() : type(LockUI) {}
-    LinkageAction(Type t, const std::string& tg, const std::string& p = "")
-        : type(t), target(tg), param(p) {}
+    LinkageAction() : type(LockUI), targetProtocolID(0) {}
+    LinkageAction(Type t, const std::string& tg, const std::string& p = "", int tgtPID = 0)
+        : type(t), target(tg), param(p), targetProtocolID(tgtPID) {}
 };
 
 // ============================================================
@@ -63,8 +64,8 @@ struct Event {
     EventLevel  effectiveLevel;   // 经降级后的实际等级（addEvent 时计算）
     EventState  state;
 
-    std::vector<LinkageAction> activeActions;   // 告警产生时的联动列表
-    std::vector<LinkageAction> clearActions;    // 告警消除时的联动列表
+    std::vector<LinkageAction> activeActions;   // 告警产生时的联动列表（configureEvent 预配置时可空）
+    std::vector<LinkageAction> clearActions;    // 告警消除时的联动列表（configureEvent 预配置时可空）
 
     Event() : protocolID(0), frameID(0),
               originalLevel(EventLevel::Info),

@@ -111,43 +111,44 @@ private:
 };
 
 // ============================================================
-// 业务方使用示例
+// 使用示例：启动时 configureEvent，运行时 Event 不带 actions
 // ============================================================
 inline void demoPerDeviceRegistration() {
-    std::cout << "\n=== 演示：各下位机独立注册 handler ===\n" << std::endl;
+    std::cout << "\n=== 演示：configureEvent + 跨设备联动 ===\n" << std::endl;
 
     LinkageEngine engine;
 
-    // 各设备单例在系统初始化时注册
+    // 各设备单例注册 handler
     BoilerController::instance().registerWith(engine);
     CoolingTowerController::instance().registerWith(engine);
 
-    // 也要注册 LockUI / UnlockUI 等通用 handler（省略，见 setup.cpp）
-    // ... registerLockUIHandler(engine);
-    // ... registerUnlockUIHandler(engine);
+    // 事件联动配置（启动时一次性完成）
+    // 锅炉温度高：自停(reason=99) + 冷却塔提转速(1200RPM) — 跨设备
+    {
+        std::vector<LinkageAction> active;
+        active.push_back(LinkageAction(LinkageAction::SendCommand, "emergency_stop", "99", 1));
+        active.push_back(LinkageAction(LinkageAction::SendCommand, "set_fan_speed", "1200", 2));
+        engine.configureEvent("1-3-temp_high", active, {});
+    }
+    // 冷却塔振动：只停自己
+    {
+        std::vector<LinkageAction> active;
+        active.push_back(LinkageAction(LinkageAction::SendCommand, "emergency_stop", "immediate", 2));
+        engine.configureEvent("2-1-vibration", active, {});
+    }
 
-    // 构造一个锅炉紧急事件
+    // 运行时：Event 不带 actions，configureEvent 自动查表
     Event boilerAlarm;
     boilerAlarm.protocolID = 1;
     boilerAlarm.id = "1-3-temp_high";
     boilerAlarm.description = "下位机1-温度过高";
-    boilerAlarm.activeActions.push_back(
-        LinkageAction(LinkageAction::SendCommand, "emergency_stop", "99"));
-    boilerAlarm.activeActions.push_back(
-        LinkageAction(LinkageAction::SendCommand, "reduce_power", "30.0,20"));
 
-    // 构造一个冷却塔事件
     Event towerAlarm;
     towerAlarm.protocolID = 2;
     towerAlarm.id = "2-1-vibration";
     towerAlarm.description = "下位机2-振动异常";
-    towerAlarm.activeActions.push_back(
-        LinkageAction(LinkageAction::SendCommand, "emergency_stop", "immediate"));
-    towerAlarm.activeActions.push_back(
-        LinkageAction(LinkageAction::SendCommand, "set_fan_speed", "800"));
 
-    // 触发 → 各设备只收到自己的事件
-    std::cout << "--- 触发锅炉事件 ---" << std::endl;
+    std::cout << "--- 触发锅炉事件（跨设备） ---" << std::endl;
     engine.executeActive(boilerAlarm);
 
     std::cout << "\n--- 触发冷却塔事件 ---" << std::endl;
@@ -155,8 +156,7 @@ inline void demoPerDeviceRegistration() {
 }
 // 输出:
 // [BoilerController] 紧急停机 reason=99
-// [BoilerController] 降功率至 30MW 持续 20s
+// [CoolingTower] 风扇转速 1200RPM        ← 跨设备联动
 // [CoolingTower] 紧急停机 immediate=true
-// [CoolingTower] 风扇转速 800RPM
 
 #endif
