@@ -1,8 +1,8 @@
 # 事件管理中心 — 软件设计说明
 
-> 版本：v1.1
+> 版本：v1.2
 > 日期：2026-06-17
-> v1.0 → v1.1：LinkageEngine per-protocolID 注册、前后端兼容适配、notifyFrontend 参数 bool 化
+> v1.1 → v1.2：configureEvent 预配置事件联动表、targetProtocolID 跨设备联动
 
 ---
 
@@ -141,6 +141,7 @@ enum class EventState { Active, Cleared };
 | type | enum Type | 动作类型：LockUI, UnlockUI, SendCommand, Buzzer |
 | target | std::string | 语义目标标识（控件名/指令名/模式名） |
 | param | std::string | 附加参数 |
+| targetProtocolID | int | SendCommand 目标下位机；0 = 与事件源相同（默认） |
 
 #### 结构体：Event
 
@@ -253,8 +254,9 @@ EventManager(ConfigManager& configMgr, LinkageEngine& linkageEng,
 |------|------|
 | `registerHandler(type, handler)` | 全局注册：匹配所有 protocolID（LockUI/UnlockUI/Buzzer 用） |
 | `registerHandler(type, protocolID, handler)` | 按设备注册：仅匹配该 protocolID（SendCommand 用） |
-| `executeActive(event)` | 执行 event.activeActions，先全局后设备 |
-| `executeCleared(event)` | 执行 event.clearActions，先全局后设备 |
+| `configureEvent(eventId, active, clear)` | 启动时预配置事件联动映射表（推荐） |
+| `executeActive(event)` | 优先查配置表，fallback 到 Event 自带 actions |
+| `executeCleared(event)` | 同上，对 SendCommand 按 targetProtocolID 路由 |
 
 #### Handler 注册（setup.cpp）
 

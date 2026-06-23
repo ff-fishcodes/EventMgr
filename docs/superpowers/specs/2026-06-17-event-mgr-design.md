@@ -1,7 +1,7 @@
 # 事件管理中心 — 设计方案
 
-> 版本：v3（修订版）
-> v2 → v3 变更：LinkageEngine per-protocolID 注册、前后端兼容适配、notifyFrontend 参数修正
+> 版本：v4（修订版）
+> v3 → v4 变更：configureEvent 预配置事件联动表、targetProtocolID 支持跨设备联动
 
 ## 1. 概述
 
@@ -172,7 +172,8 @@ struct Event {
 **设计要点：**
 - `LinkageAction` 是联动的基本单元。一个事件可携带多个 action，对应"同一故障联动不止一个"
 - `target` 是语义标识（如 `"panel_operation"`），不耦合具体的 Qt widget 名
-- `activeActions` 和 `clearActions` 由业务在创建 Event 时指定，后续新增联动类型不影响已有代码
+- `targetProtocolID` 用于 SendCommand 指定目标下位机（>0 时路由到指定设备，0 或未设则路由到事件源），支持跨设备联动
+- `activeActions` / `clearActions` 可通过 `configureEvent()` 在启动时预配置，Event 对象上可以不填（仅用于少数动态场景兜底）
 
 ---
 
@@ -204,24 +205,29 @@ public:
 
 **设计要点：**
 - 断联作为一种事件，与普通告警统一走 createAlarm + addEvent / clearEvent 入口，不单独设接口
-- 业务创建 Event 时就应指定等级和联动内容，addEvent 负责查重、降级计算、存储、触发联动、通知
+- Event 的联动内容可通过两种方式指定：
+  1. **推荐**：启动时用 `LinkageEngine::configureEvent()` 预配置，运行时 Event 无需携带 actions
+  2. **兜底**：Event 自带的 activeActions/clearActions（仅用于少数动态场景）
+- addEvent 负责查重、降级计算、存储、触发联动（自动查预配置表）、通知
 
 **业务使用示例：**
 
 ```cpp
+// ===== 启动阶段 =====
 ExternalAPI api;
+LinkageEngine engine;
 
-// 1. 创建事件
+// 配置事件联动（一次性）
+engine.configureEvent("1-3-temp_high",
+    { SendCommand("emergency_stop", "99", targetProtocolID=1),   // 锅炉自停
+      SendCommand("set_fan_speed", "1200", targetProtocolID=2) },// 冷却塔提速（跨设备）
+    { UnlockUI("panel_main") }
+);
+
+// ===== 运行阶段 =====
+// NetworkReceiver 只需要知道事件标识，不需要关心联动
 Event event = api.createAlarm(1, 3, "temp_high", EventLevel::Emergency, "下位机1-温度过高");
-
-// 2. 指定联动内容
-event.activeActions.push_back({LinkageAction::LockUI,      "panel_operation", ""});
-event.activeActions.push_back({LinkageAction::SendCommand, "boiler_1",       "emergency_stop"});
-event.clearActions.push_back({LinkageAction::UnlockUI,     "panel_operation", ""});
-
-// 3. 添加
-api.addEvent(event);
-```
+api.addEvent(event);  // Event 上无 actions，引擎自动查配置表
 
 ---
 
@@ -601,3 +607,4 @@ void onSocketMessage(const QJsonObject& msg) {
 | v1 | 2026-06-17 | 初版：需求分析、模块划分、接口定义 |
 | v2 | 2026-06-17 | 修订：Event 值对象入参、ExternalAPI 工厂方法、LinkageEngine 回调注册制、前后端协议增加 uiActions 携带联动 target |
 | v3 | 2026-06-17 | 修订：LinkageEngine per-protocolID 注册、前后端兼容适配（FrontendCallbacks）、notifyFrontend 参数 bool 化 |
+| v4 | 2026-06-17 | 修订：configureEvent 预配置事件联动表、targetProtocolID 跨设备联动、Event 的 actions 改为可选 |

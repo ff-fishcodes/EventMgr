@@ -487,4 +487,43 @@ v2 修订版设计文档已更新：
 
 ---
 
+---
+
+## 11. 设计评审（v3 → v4）：启动时预配置事件联动
+
+> 讨论日期：2026-06-17
+
+### 11.1 事件联动配置时机
+
+**用户指出：**
+
+> "只有事件产生的时候才能去注册联动。但实际每个事件联动什么动作在软件启动阶段就已经确认了"
+
+**分析：** v3 设计中 Event 的 activeActions/clearActions 需在 addEvent 前由调用方 push。问题：
+- 职责错位：NetworkReceiver 不该知道"锁什么面板、发什么指令"
+- 配置散落：100 个事件的联动分散在各调用点
+
+**决策：** LinkageEngine 新增 `configureEvent(EventId, activeActions, clearActions)` 方法。启动时一次性配置，运行时 addEvent 自动查表，Event 对象无需携带 actions。Event 自带的 actions 保留作为兜底（少数动态场景）。
+
+### 11.2 跨设备联动
+
+**用户提出：**
+
+> "下位机A报了一个故障，有可能需要控制下位机B去执行某个操作"
+
+**分析：** v3 中 SendCommand 分发用 `event.protocolID` 作为路由键，无法跨设备。
+
+**决策：** `LinkageAction` 增加 `targetProtocolID` 字段（0 或未设为与事件源相同）。dispatchAction 对 SendCommand 用 `resolveProtocolID(event, action)` 路由，>0 时发到目标设备。
+
+### 11.3 v3 → v4 核心变更
+
+| 变更点 | 说明 |
+|--------|------|
+| `LinkageAction::targetProtocolID` | 新增字段，SendCommand 指定目标下位机 |
+| `LinkageEngine::configureEvent()` | 启动时预配置事件联动映射表 |
+| 执行优先级 | 先查 eventConfig_ 表，找不到才用 Event 自带 actions |
+| 路由逻辑 | SendCommand 按 targetProtocolID 路由，支持跨设备 |
+
+---
+
 *记录完毕。本文档供后续需求回顾和设计决策追溯使用。*
