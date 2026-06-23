@@ -27,12 +27,12 @@ int main() {
     // ---- 事件联动配置（启动时一次性完成）----
 
     // 锅炉温度过高：自停 + 冷却塔提速散热（跨设备联动）
+    // UnlockUI 不用配 — 引擎自动从 LockUI mirror
     {
         std::vector<LinkageAction> active, clear;
         active.push_back(LinkageAction(LinkageAction::SendCommand, "emergency_stop", "99", 1));
         active.push_back(LinkageAction(LinkageAction::SendCommand, "set_fan_speed", "1200", 2));
         active.push_back(LinkageAction(LinkageAction::LockUI, "panel_main", "", 0));
-        clear.push_back(LinkageAction(LinkageAction::UnlockUI, "panel_main", "", 0));
         linkageEng.configureEvent("1-3-temp_high", active, clear);
     }
 
@@ -43,11 +43,10 @@ int main() {
         linkageEng.configureEvent("2-1-vibration", active, clear);
     }
 
-    // 下位机4断联：只锁界面
+    // 下位机4断联：只锁界面（UnlockUI 自动 mirror）
     {
         std::vector<LinkageAction> active, clear;
         active.push_back(LinkageAction(LinkageAction::LockUI, "panel_device4", "", 0));
-        clear.push_back(LinkageAction(LinkageAction::UnlockUI, "panel_device4", "", 0));
         linkageEng.configureEvent("4-0-device_offline", active, clear);
     }
 

@@ -61,7 +61,9 @@ public:
 private:
     // 解析 event 对应的 actions：优先查配置表，fallback 到 event 自带
     const std::vector<LinkageAction>& resolveActiveActions(const Event& event);
-    const std::vector<LinkageAction>& resolveClearActions(const Event& event);
+
+    // 解析清除侧 actions：配置表 + 自动 mirror active 中的 LockUI → UnlockUI
+    std::vector<LinkageAction> resolveClearActions(const Event& event);
 
     void executeActions(const Event& event,
                         const std::vector<LinkageAction>& actions);

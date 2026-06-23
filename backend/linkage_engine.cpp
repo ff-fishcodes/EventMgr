@@ -46,14 +46,37 @@ const std::vector<LinkageAction>& LinkageEngine::resolveActiveActions(const Even
     return event.activeActions;    // fallback
 }
 
-const std::vector<LinkageAction>& LinkageEngine::resolveClearActions(const Event& event) {
+std::vector<LinkageAction> LinkageEngine::resolveClearActions(const Event& event) {
+    std::vector<LinkageAction> result;
+
     std::unordered_map<EventId,
         std::pair<std::vector<LinkageAction>, std::vector<LinkageAction> > >::const_iterator
         it = eventConfig_.find(event.id);
+
+    const std::vector<LinkageAction>* explicitClear = NULL;
+    const std::vector<LinkageAction>* activeSrc    = NULL;
+
     if (it != eventConfig_.end()) {
-        return it->second.second;  // 预配置的 clearActions
+        explicitClear = &it->second.second;
+        activeSrc     = &it->second.first;
+    } else {
+        explicitClear = &event.clearActions;
+        activeSrc     = &event.activeActions;
     }
-    return event.clearActions;     // fallback
+
+    // 1. 复制显式配置的清除动作
+    result.insert(result.end(), explicitClear->begin(), explicitClear->end());
+
+    // 2. 自动 mirror：active 中每个 LockUI 自动生成对应的 UnlockUI
+    for (std::vector<LinkageAction>::const_iterator i = activeSrc->begin();
+         i != activeSrc->end(); ++i) {
+        if (i->type == LinkageAction::LockUI) {
+            result.push_back(LinkageAction(
+                LinkageAction::UnlockUI, i->target, "", i->targetProtocolID));
+        }
+    }
+
+    return result;
 }
 
 // ============================================================
