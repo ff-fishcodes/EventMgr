@@ -10,7 +10,7 @@ TARGET   = EventMgrFrontend
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp \
+    eventmgr_widget.cpp \
     alarm_catalog_widget.cpp \
     event_list_widget.cpp \
     backend_bridge.cpp \
@@ -26,7 +26,7 @@ SOURCES += \
     ../backend/stubs/buzzer_control.cpp
 
 HEADERS += \
-    mainwindow.h \
+    eventmgr_widget.h \
     alarm_catalog_widget.h \
     event_list_widget.h \
     backend_bridge.h
