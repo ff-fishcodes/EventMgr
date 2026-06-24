@@ -51,7 +51,7 @@ int main() {
     }
 
     EventManager eventMgr(configMgr, linkageEng);
-    ExternalAPI api(eventMgr);
+    ExternalAPI api(eventMgr, configMgr);
 
     // ============================================================
     // 2. 运行阶段：业务方只创建 Event，不关心联动

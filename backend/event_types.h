@@ -52,6 +52,22 @@ struct LinkageAction {
 using EventId = std::string;
 
 // ============================================================
+// 报警定义 — 前端报警目录的每一行
+// ============================================================
+struct AlarmDef {
+    EventId     id;               // "protocolID-frameID-alarmField"
+    std::string description;      // 报警描述
+    EventLevel  originalLevel;    // 原始等级
+    bool        downgraded;       // 是否已降级
+    EventLevel  downgradeTo;      // 降级到哪个等级（仅 downgraded=true 时有效）
+    bool        shielded;         // 是否已屏蔽
+
+    AlarmDef() : originalLevel(EventLevel::Info),
+                 downgraded(false), downgradeTo(EventLevel::Info),
+                 shielded(false) {}
+};
+
+// ============================================================
 // 事件值对象 — 自包含，创建时指定等级和联动内容
 // ============================================================
 struct Event {

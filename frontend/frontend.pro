@@ -1,0 +1,34 @@
+# ============================================================
+# 事件管理中心 — 前端 Qt 5.15.2 工程
+# 编译: qmake && make
+# ============================================================
+
+QT       += core gui widgets
+TEMPLATE = app
+CONFIG  += c++11
+TARGET   = EventMgrFrontend
+
+SOURCES += \
+    main.cpp \
+    mainwindow.cpp \
+    alarm_catalog_widget.cpp \
+    event_list_widget.cpp \
+    backend_bridge.cpp \
+    ../backend/external_api.cpp \
+    ../backend/event_manager.cpp \
+    ../backend/linkage_engine.cpp \
+    ../backend/config_manager.cpp \
+    ../backend/setup.cpp \
+    ../backend/stubs/alarm_catalog.cpp \
+    ../backend/stubs/socket_server.cpp \
+    ../backend/stubs/log_writer.cpp \
+    ../backend/stubs/cmd_sender.cpp \
+    ../backend/stubs/buzzer_control.cpp
+
+HEADERS += \
+    mainwindow.h \
+    alarm_catalog_widget.h \
+    event_list_widget.h \
+    backend_bridge.h
+
+INCLUDEPATH += .. ../backend
