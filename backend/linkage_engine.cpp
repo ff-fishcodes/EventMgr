@@ -84,10 +84,12 @@ std::vector<LinkageAction> LinkageEngine::resolveClearActions(const Event& event
 // ============================================================
 
 void LinkageEngine::executeActive(const Event& event) {
+    if (event.effectiveLevel == EventLevel::Info) return;   // 提示等级不联动
     executeActions(event, resolveActiveActions(event));
 }
 
 void LinkageEngine::executeCleared(const Event& event) {
+    if (event.effectiveLevel == EventLevel::Info) return;   // 提示等级不联动
     executeActions(event, resolveClearActions(event));
 }
 
