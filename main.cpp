@@ -24,19 +24,26 @@ int main() {
     BoilerController::instance().registerWith(linkageEng);
     CoolingTowerController::instance().registerWith(linkageEng);
 
+    // ---- 等级默认动作（所有该等级事件自动附加上）----
+    {
+        std::vector<LinkageAction> defaultEmergency;
+        defaultEmergency.push_back(
+            LinkageAction(LinkageAction::SendCommand, "emergency_stop", "", 2));
+        linkageEng.setLevelDefault(EventLevel::Emergency, defaultEmergency);
+    }
+
     // ---- 事件联动配置（启动时一次性完成）----
 
-    // 锅炉温度过高：自停 + 冷却塔提速散热（跨设备联动）
-    // UnlockUI 不用配 — 引擎自动从 LockUI mirror
+    // 锅炉温度过高：冷却塔提速散热（跨设备联动）
+    // SendCommand(emergency_stop, target=2) 由 setLevelDefault(Emergency) 自动附加
     {
         std::vector<LinkageAction> active, clear;
-        active.push_back(LinkageAction(LinkageAction::SendCommand, "emergency_stop", "99", 1));
         active.push_back(LinkageAction(LinkageAction::SendCommand, "set_fan_speed", "1200", 2));
         active.push_back(LinkageAction(LinkageAction::LockUI, "panel_main", "", 0));
         linkageEng.configureEvent("1-3-temp_high", active, clear);
     }
 
-    // 冷却塔振动异常：只停自己
+    // 冷却塔振动异常（严重等级）：只有自己的动作，无等级默认
     {
         std::vector<LinkageAction> active, clear;
         active.push_back(LinkageAction(LinkageAction::SendCommand, "emergency_stop", "immediate", 2));

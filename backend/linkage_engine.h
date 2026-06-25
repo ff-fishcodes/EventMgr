@@ -25,6 +25,12 @@
 //      → 运行时 addEvent 自动查此表，Event 对象可以不携带 actions
 //      → 若 findEvent 查不到，则 fallback 到 Event 自带的 actions
 //
+//   4. setLevelDefault(level, actions)
+//      → 按等级绑定默认动作，所有该等级事件自动附加上
+//      → 例如所有 Emergency 事件统一向指定设备发送停机指令
+//
+// 运行时 resolveActiveActions = 配置表 actions + 等级默认 actions
+//
 // 分发路由：
 //   - 全局 handler（protocolID=-1）和 per-protocolID handler 两者都执行
 //   - SendCommand 用 action.targetProtocolID（>0时），否则用 event.protocolID
@@ -50,6 +56,10 @@ public:
                         const std::vector<LinkageAction>& activeActions,
                         const std::vector<LinkageAction>& clearActions);
 
+    // 按等级设置默认联动动作：所有该等级事件自动附加上这些 actions
+    void setLevelDefault(EventLevel level,
+                         const std::vector<LinkageAction>& activeActions);
+
     // ========= 执行 =========
 
     void executeActive(const Event& event);
@@ -59,8 +69,8 @@ public:
     void clearAll();
 
 private:
-    // 解析 event 对应的 actions：优先查配置表，fallback 到 event 自带
-    const std::vector<LinkageAction>& resolveActiveActions(const Event& event);
+    // 解析 event 对应的 actions：配置表 + 等级默认 + fallback 到 event 自带
+    std::vector<LinkageAction> resolveActiveActions(const Event& event);
 
     // 解析清除侧 actions：配置表 + 自动 mirror active 中的 LockUI → UnlockUI
     std::vector<LinkageAction> resolveClearActions(const Event& event);
@@ -91,6 +101,10 @@ private:
     // EventId → (activeActions, clearActions)
     std::unordered_map<EventId,
         std::pair<std::vector<LinkageAction>, std::vector<LinkageAction> > > eventConfig_;
+
+    // ========= 等级默认动作 =========
+    // EventLevel → 默认 active actions
+    std::unordered_map<int, std::vector<LinkageAction> > levelDefaults_;
 };
 
 #endif // LINKAGE_ENGINE_H

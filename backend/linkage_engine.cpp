@@ -32,18 +32,34 @@ void LinkageEngine::configureEvent(
     eventConfig_[eventId] = std::make_pair(activeActions, clearActions);
 }
 
+void LinkageEngine::setLevelDefault(EventLevel level,
+                                     const std::vector<LinkageAction>& activeActions) {
+    levelDefaults_[static_cast<int>(level)] = activeActions;
+}
+
 // ============================================================
-// 解析 actions：配置表优先，Event 自带兜底
+// 解析 actions：配置表 + 等级默认 + Event 自带兜底
 // ============================================================
 
-const std::vector<LinkageAction>& LinkageEngine::resolveActiveActions(const Event& event) {
+std::vector<LinkageAction> LinkageEngine::resolveActiveActions(const Event& event) {
+    std::vector<LinkageAction> result;
+
+    // 1. 事件级配置表（或 Event 自带 actions）
     std::unordered_map<EventId,
         std::pair<std::vector<LinkageAction>, std::vector<LinkageAction> > >::const_iterator
         it = eventConfig_.find(event.id);
-    if (it != eventConfig_.end()) {
-        return it->second.first;   // 预配置的 activeActions
+    const std::vector<LinkageAction>& base =
+        (it != eventConfig_.end()) ? it->second.first : event.activeActions;
+    result.insert(result.end(), base.begin(), base.end());
+
+    // 2. 等级默认动作（如所有 Emergency 统一向指定设备发停机指令）
+    std::unordered_map<int, std::vector<LinkageAction> >::const_iterator
+        levelIt = levelDefaults_.find(static_cast<int>(event.effectiveLevel));
+    if (levelIt != levelDefaults_.end()) {
+        result.insert(result.end(), levelIt->second.begin(), levelIt->second.end());
     }
-    return event.activeActions;    // fallback
+
+    return result;
 }
 
 std::vector<LinkageAction> LinkageEngine::resolveClearActions(const Event& event) {
@@ -147,4 +163,5 @@ void LinkageEngine::dispatchAction(const Event& event,
 void LinkageEngine::clearAll() {
     handlers_.clear();
     eventConfig_.clear();
+    levelDefaults_.clear();
 }

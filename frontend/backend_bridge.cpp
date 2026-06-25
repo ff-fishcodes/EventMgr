@@ -26,10 +26,17 @@ void BackendBridge::initialize() {
     BoilerController::instance().registerWith(*linkageEng_);
     CoolingTowerController::instance().registerWith(*linkageEng_);
 
+    // 等级默认动作：任何 Emergency 事件自动附加 SendCommand(emergency_stop, target=2)
+    {
+        std::vector<LinkageAction> defaultEmergency;
+        defaultEmergency.push_back(
+            LinkageAction(LinkageAction::SendCommand, "emergency_stop", "", 2));
+        linkageEng_->setLevelDefault(EventLevel::Emergency, defaultEmergency);
+    }
+
     // 预配置事件联动
     {
         std::vector<LinkageAction> active, clear;
-        active.push_back(LinkageAction(LinkageAction::SendCommand, "emergency_stop", "99", 1));
         active.push_back(LinkageAction(LinkageAction::SendCommand, "set_fan_speed", "1200", 2));
         active.push_back(LinkageAction(LinkageAction::LockUI, "panel_main", "", 0));
         linkageEng_->configureEvent("1-3-temp_high", active, clear);
