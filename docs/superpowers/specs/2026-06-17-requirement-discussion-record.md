@@ -526,4 +526,31 @@ v2 修订版设计文档已更新：
 
 ---
 
+---
+
+## 12. ActionRegistry 方案设计
+
+> 讨论日期：2026-06-26
+
+### 12.1 问题动机
+
+**用户指出：** 当前每个下位机控制器都要实现 `dispatch(cmd, param)` 做字符串分发，且 `SendCommand` 需要通过 `target` 和 `param` 传递动作名和参数，再由各控制器自行解析。实际上每个业务方法自己知道要什么参数，不需要从外部传。
+
+### 12.2 设计决策
+
+**ActionRegistry 集中注册 + 名字引用：**
+
+- 控制器的 public 方法在 ActionRegistry 中以 lambda 形式注册（参数已被捕获，不需要外部传参）
+- 每个能力绑定一个名字：`"(protocolID, name) → callback"`
+- `configureEvent` 只引用名字字符串，不再需要 `LinkageAction{type, target, param, targetProtocolID}`
+- 跨设备联动通过名字前缀：`"2:fan_high"` = protocolID=2 的 fan_high 动作
+
+**对比结论：** 集中式（ActionRegistry）优于散落式（各控制器 registerWith），原因：可读性强、接入成本低、控制器零依赖。
+
+### 12.3 产出
+
+📄 `docs/superpowers/specs/2026-06-26-action-registry-design.md`
+
+---
+
 *记录完毕。本文档供后续需求回顾和设计决策追溯使用。*
