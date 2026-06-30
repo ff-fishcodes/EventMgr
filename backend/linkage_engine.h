@@ -5,106 +5,80 @@
 #include <functional>
 #include <unordered_map>
 #include <vector>
+#include <string>
 #include <utility>
 
 // ============================================================
-// LinkageEngine — 联动引擎（回调注册制）
+// LinkageEngine — 联动引擎（命名回调制）
 //
-// 三层注册模式：
+// ActionRegistry 在启动时注册"名字→回调"映射。
+// configureEvent / setLevelDefault 用名字字符串引用动作。
 //
-//   1. registerHandler(type, handler)
-//      → 全局 handler，匹配所有 protocolID 的该类型动作
-//      → 适用于 LockUI / UnlockUI / Buzzer 等通用动作
+// 名字格式: "name"          → 默认为 event.protocolID:name
+//           "2:name"        → 显式指定 protocolID=2（跨设备）
+//           "lock_ui:xxx"   → 前缀=0 为全局动作
 //
-//   2. registerHandler(type, protocolID, handler)
-//      → 仅匹配指定 protocolID 的该类型动作
-//      → 适用于 SendCommand，每个下位机单例独立注册
-//
-//   3. configureEvent(eventId, activeActions, clearActions)
-//      → 启动时预配置"什么事件→干什么动作"
-//      → 运行时 addEvent 自动查此表，Event 对象可以不携带 actions
-//      → 若 findEvent 查不到，则 fallback 到 Event 自带的 actions
-//
-//   4. setLevelDefault(level, actions)
-//      → 按等级绑定默认动作，所有该等级事件自动附加上
-//      → 例如所有 Emergency 事件统一向指定设备发送停机指令
-//
-// 运行时 resolveActiveActions = 配置表 actions + 等级默认 actions
-//
-// 分发路由：
-//   - 全局 handler（protocolID=-1）和 per-protocolID handler 两者都执行
-//   - SendCommand 用 action.targetProtocolID（>0时），否则用 event.protocolID
+// 运行时链路:
+//   addEvent → 查事件配置表 + 等级默认表 → 名字列表
+//   → resolveName(名字, event.protocolID) → 查 actionTable_
+//   → 执行回调（lambda 已捕获 this+参数）
 // ============================================================
 class LinkageEngine {
 public:
-    using ActionHandler = std::function<void(const Event&, const LinkageAction&)>;
+    // 回调: 无参数 — 所有参数已在 lambda 中捕获
+    using ActionCallback = std::function<void()>;
 
-    // ========= handler 注册 =========
+    // ========= Action 注册 =========
 
-    // 全局注册：匹配所有 protocolID
-    void registerHandler(LinkageAction::Type type, ActionHandler handler);
-
-    // 按 protocolID 注册：仅匹配指定下位机
-    void registerHandler(LinkageAction::Type type, int protocolID,
-                         ActionHandler handler);
+    // 注册一个命名回调
+    // protocolID=0 为全局（lock_ui 等），>0 为指定下位机
+    void registerAction(int protocolID, const std::string& name,
+                        ActionCallback callback);
 
     // ========= 事件联动配置 =========
 
-    // 启动时一次性配置：指定某个 EventId 的联动动作
-    // 运行时 addEvent 自动查此表，优先于 Event 自带的 actions
+    // 为指定 EventId 配置联动（名字列表）
     void configureEvent(const EventId& eventId,
-                        const std::vector<LinkageAction>& activeActions,
-                        const std::vector<LinkageAction>& clearActions);
+                        const std::vector<std::string>& activeNames,
+                        const std::vector<std::string>& clearNames);
 
-    // 按等级设置默认联动动作：所有该等级事件自动附加上这些 actions
+    // 按等级设置默认联动
     void setLevelDefault(EventLevel level,
-                         const std::vector<LinkageAction>& activeActions);
+                         const std::vector<std::string>& names);
 
     // ========= 执行 =========
 
     void executeActive(const Event& event);
     void executeCleared(const Event& event);
 
-    // 清空所有已注册的 handler 和事件配置（用于测试）
     void clearAll();
 
 private:
-    // 解析 event 对应的 actions：配置表 + 等级默认 + fallback 到 event 自带
-    std::vector<LinkageAction> resolveActiveActions(const Event& event);
+    // 解析: "name" → ("protocolID", "name")
+    //       "2:name" → ("2", "name")
+    static std::pair<int, std::string> parseName(const Event& event,
+                                                  const std::string& name);
 
-    // 解析清除侧 actions：配置表 + 自动 mirror active 中的 LockUI → UnlockUI
-    std::vector<LinkageAction> resolveClearActions(const Event& event);
+    // 合并：事件配置 + 等级默认 → 名字列表
+    std::vector<std::string> resolveActiveNames(const Event& event);
 
-    void executeActions(const Event& event,
-                        const std::vector<LinkageAction>& actions);
+    // 合并：事件配置的 clearNames + LockUI 自动 mirror
+    std::vector<std::string> resolveClearNames(const Event& event);
 
-    // 分发单个 action：按 targetProtocolID 路由
-    void dispatchAction(const Event& event, const LinkageAction& action);
+    // 按名字列表执行
+    void executeNames(const Event& event, const std::vector<std::string>& names);
 
-    // 获取分发用的 protocolID：SendCommand 用 targetProtocolID，其他用 event 源
-    static int resolveProtocolID(const Event& event, const LinkageAction& action);
+    // ========= 存储 =========
 
-    // ========= handler 存储 =========
-    // Key: (actionType, protocolID), protocolID=-1 表示全局
-    using HandlerKey = std::pair<int, int>;
+    // (protocolID, name) → callback
+    std::unordered_map<std::string, ActionCallback> actionTable_;
 
-    struct KeyHash {
-        std::size_t operator()(const HandlerKey& k) const {
-            return std::hash<int>()(k.first) ^
-                   (std::hash<int>()(k.second) << 1);
-        }
-    };
-
-    std::unordered_map<HandlerKey, std::vector<ActionHandler>, KeyHash> handlers_;
-
-    // ========= 事件联动配置表 =========
-    // EventId → (activeActions, clearActions)
+    // EventId → (activeNames, clearNames)
     std::unordered_map<EventId,
-        std::pair<std::vector<LinkageAction>, std::vector<LinkageAction> > > eventConfig_;
+        std::pair<std::vector<std::string>, std::vector<std::string> > > eventConfig_;
 
-    // ========= 等级默认动作 =========
-    // EventLevel → 默认 active actions
-    std::unordered_map<int, std::vector<LinkageAction> > levelDefaults_;
+    // level → default names
+    std::unordered_map<int, std::vector<std::string> > levelDefaults_;
 };
 
 #endif // LINKAGE_ENGINE_H

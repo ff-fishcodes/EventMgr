@@ -24,29 +24,6 @@ enum class EventState {
 };
 
 // ============================================================
-// 联动动作 — 告警产生/消除时的执行单元
-// 一个事件可携带多个联动动作
-// ============================================================
-struct LinkageAction {
-    enum Type {
-        LockUI,       // 锁前端控件    target=控件标识
-        UnlockUI,     // 解锁前端控件  target=控件标识
-        SendCommand,  // 向下位机发指令 target=指令名 param=指令内容
-        Buzzer        // 蜂鸣器提示    target=模式名 param=参数（预留）
-        // 后续新增联动类型只需追加枚举值，注册新 handler 即可
-    };
-
-    Type        type;
-    std::string target;          // UI控件标识 / 指令名称 / 蜂鸣器模式
-    std::string param;           // 附加参数
-    int         targetProtocolID; // SendCommand专用：目标下位机；0=与事件源相同（默认）
-
-    LinkageAction() : type(LockUI), targetProtocolID(0) {}
-    LinkageAction(Type t, const std::string& tg, const std::string& p = "", int tgtPID = 0)
-        : type(t), target(tg), param(p), targetProtocolID(tgtPID) {}
-};
-
-// ============================================================
 // 事件编号 — "protocolID-frameID-报警字段" 组合键
 // ============================================================
 using EventId = std::string;
@@ -68,7 +45,7 @@ struct AlarmDef {
 };
 
 // ============================================================
-// 事件值对象 — 自包含，创建时指定等级和联动内容
+// 事件值对象 — 自包含，创建时指定等级，联动由引擎配置表决定
 // ============================================================
 struct Event {
     EventId     id;               // "protocolID-frameID-alarmField"
@@ -80,8 +57,9 @@ struct Event {
     EventLevel  effectiveLevel;   // 经降级后的实际等级（addEvent 时计算）
     EventState  state;
 
-    std::vector<LinkageAction> activeActions;   // 告警产生时的联动列表（configureEvent 预配置时可空）
-    std::vector<LinkageAction> clearActions;    // 告警消除时的联动列表（configureEvent 预配置时可空）
+    // 兜底：如果引擎配置表和等级默认都没配，则用此列表
+    std::vector<std::string> activeActions;
+    std::vector<std::string> clearActions;
 
     Event() : protocolID(0), frameID(0),
               originalLevel(EventLevel::Info),

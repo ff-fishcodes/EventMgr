@@ -18,7 +18,7 @@ SOURCES += \
     ../backend/event_manager.cpp \
     ../backend/linkage_engine.cpp \
     ../backend/config_manager.cpp \
-    ../backend/setup.cpp \
+    ../backend/action_registry.cpp \
     ../backend/stubs/alarm_catalog.cpp \
     ../backend/stubs/socket_server.cpp \
     ../backend/stubs/log_writer.cpp \

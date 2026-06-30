@@ -1,24 +1,15 @@
 #include "linkage_engine.h"
-
-namespace {
-    const int GLOBAL_PROTOCOL = -1;
-}
+#include <sstream>
 
 // ============================================================
-// handler 注册
+// Action 注册
 // ============================================================
 
-void LinkageEngine::registerHandler(LinkageAction::Type type,
-                                     ActionHandler handler) {
-    HandlerKey key(static_cast<int>(type), GLOBAL_PROTOCOL);
-    handlers_[key].push_back(handler);
-}
-
-void LinkageEngine::registerHandler(LinkageAction::Type type,
-                                     int protocolID,
-                                     ActionHandler handler) {
-    HandlerKey key(static_cast<int>(type), protocolID);
-    handlers_[key].push_back(handler);
+void LinkageEngine::registerAction(int protocolID, const std::string& name,
+                                    ActionCallback callback) {
+    std::ostringstream key;
+    key << protocolID << ":" << name;
+    actionTable_[key.str()] = callback;
 }
 
 // ============================================================
@@ -27,33 +18,63 @@ void LinkageEngine::registerHandler(LinkageAction::Type type,
 
 void LinkageEngine::configureEvent(
         const EventId& eventId,
-        const std::vector<LinkageAction>& activeActions,
-        const std::vector<LinkageAction>& clearActions) {
-    eventConfig_[eventId] = std::make_pair(activeActions, clearActions);
+        const std::vector<std::string>& activeNames,
+        const std::vector<std::string>& clearNames) {
+    eventConfig_[eventId] = std::make_pair(activeNames, clearNames);
 }
 
 void LinkageEngine::setLevelDefault(EventLevel level,
-                                     const std::vector<LinkageAction>& activeActions) {
-    levelDefaults_[static_cast<int>(level)] = activeActions;
+                                     const std::vector<std::string>& names) {
+    levelDefaults_[static_cast<int>(level)] = names;
 }
 
 // ============================================================
-// 解析 actions：配置表 + 等级默认 + Event 自带兜底
+// 名字解析
 // ============================================================
 
-std::vector<LinkageAction> LinkageEngine::resolveActiveActions(const Event& event) {
-    std::vector<LinkageAction> result;
+std::pair<int, std::string> LinkageEngine::parseName(const Event& event,
+                                                      const std::string& name) {
+    size_t colon = name.find(':');
+    if (colon == std::string::npos) {
+        // 无冒号 → 默认用事件的 protocolID
+        return std::make_pair(event.protocolID, name);
+    }
 
-    // 1. 事件级配置表（或 Event 自带 actions）
+    // 冒号前为纯数字 → protocolID 前缀（如 "2:emergency_stop"）
+    std::string prefix = name.substr(0, colon);
+    bool isNumeric = !prefix.empty();
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (prefix[i] < '0' || prefix[i] > '9') { isNumeric = false; break; }
+    }
+
+    if (isNumeric) {
+        int pid = 0;
+        std::istringstream(prefix) >> pid;
+        return std::make_pair(pid, name.substr(colon + 1));
+    }
+
+    // 冒号前非数字 → 整个字符串就是名字（如 "lock_ui:panel_main"）
+    // protocolID 默认用 0（全局）
+    return std::make_pair(0, name);
+}
+
+// ============================================================
+// 解析 names：事件配置 + 等级默认 → 合并
+// ============================================================
+
+std::vector<std::string> LinkageEngine::resolveActiveNames(const Event& event) {
+    std::vector<std::string> result;
+
+    // 1. 事件级配置（或 Event 自带兜底）
     std::unordered_map<EventId,
-        std::pair<std::vector<LinkageAction>, std::vector<LinkageAction> > >::const_iterator
+        std::pair<std::vector<std::string>, std::vector<std::string> > >::const_iterator
         it = eventConfig_.find(event.id);
-    const std::vector<LinkageAction>& base =
+    const std::vector<std::string>& base =
         (it != eventConfig_.end()) ? it->second.first : event.activeActions;
     result.insert(result.end(), base.begin(), base.end());
 
-    // 2. 等级默认动作（如所有 Emergency 统一向指定设备发停机指令）
-    std::unordered_map<int, std::vector<LinkageAction> >::const_iterator
+    // 2. 等级默认
+    std::unordered_map<int, std::vector<std::string> >::const_iterator
         levelIt = levelDefaults_.find(static_cast<int>(event.effectiveLevel));
     if (levelIt != levelDefaults_.end()) {
         result.insert(result.end(), levelIt->second.begin(), levelIt->second.end());
@@ -62,15 +83,15 @@ std::vector<LinkageAction> LinkageEngine::resolveActiveActions(const Event& even
     return result;
 }
 
-std::vector<LinkageAction> LinkageEngine::resolveClearActions(const Event& event) {
-    std::vector<LinkageAction> result;
+std::vector<std::string> LinkageEngine::resolveClearNames(const Event& event) {
+    std::vector<std::string> result;
 
     std::unordered_map<EventId,
-        std::pair<std::vector<LinkageAction>, std::vector<LinkageAction> > >::const_iterator
+        std::pair<std::vector<std::string>, std::vector<std::string> > >::const_iterator
         it = eventConfig_.find(event.id);
 
-    const std::vector<LinkageAction>* explicitClear = NULL;
-    const std::vector<LinkageAction>* activeSrc    = NULL;
+    const std::vector<std::string>* explicitClear = NULL;
+    const std::vector<std::string>* activeSrc     = NULL;
 
     if (it != eventConfig_.end()) {
         explicitClear = &it->second.second;
@@ -80,15 +101,16 @@ std::vector<LinkageAction> LinkageEngine::resolveClearActions(const Event& event
         activeSrc     = &event.activeActions;
     }
 
-    // 1. 复制显式配置的清除动作
+    // 1. 显式清除动作
     result.insert(result.end(), explicitClear->begin(), explicitClear->end());
 
-    // 2. 自动 mirror：active 中每个 LockUI 自动生成对应的 UnlockUI
-    for (std::vector<LinkageAction>::const_iterator i = activeSrc->begin();
+    // 2. 自动 mirror: "lock_ui:xxx" → "unlock_ui:xxx"
+    for (std::vector<std::string>::const_iterator i = activeSrc->begin();
          i != activeSrc->end(); ++i) {
-        if (i->type == LinkageAction::LockUI) {
-            result.push_back(LinkageAction(
-                LinkageAction::UnlockUI, i->target, "", i->targetProtocolID));
+        if (i->compare(0, 8, "lock_ui:") == 0) {
+            std::string unlockName = "unlock_ui:" + i->substr(8);
+            // 保持前缀: 若原名字带 protocolID 前缀则保留
+            result.push_back(unlockName);
         }
     }
 
@@ -100,68 +122,35 @@ std::vector<LinkageAction> LinkageEngine::resolveClearActions(const Event& event
 // ============================================================
 
 void LinkageEngine::executeActive(const Event& event) {
-    if (event.effectiveLevel == EventLevel::Info) return;   // 提示等级不联动
-    executeActions(event, resolveActiveActions(event));
+    if (event.effectiveLevel == EventLevel::Info) return;
+    executeNames(event, resolveActiveNames(event));
 }
 
 void LinkageEngine::executeCleared(const Event& event) {
-    if (event.effectiveLevel == EventLevel::Info) return;   // 提示等级不联动
-    executeActions(event, resolveClearActions(event));
+    if (event.effectiveLevel == EventLevel::Info) return;
+    executeNames(event, resolveClearNames(event));
 }
 
-void LinkageEngine::executeActions(const Event& event,
-                                    const std::vector<LinkageAction>& actions) {
-    for (std::vector<LinkageAction>::const_iterator it = actions.begin();
-         it != actions.end(); ++it) {
-        dispatchAction(event, *it);
-    }
-}
+void LinkageEngine::executeNames(const Event& event,
+                                  const std::vector<std::string>& names) {
+    for (std::vector<std::string>::const_iterator it = names.begin();
+         it != names.end(); ++it) {
+        // 解析名字 → (protocolID, localName)
+        std::pair<int, std::string> resolved = parseName(event, *it);
 
-// ============================================================
-// 分发：按 targetProtocolID 路由
-// ============================================================
-
-int LinkageEngine::resolveProtocolID(const Event& event, const LinkageAction& action) {
-    // SendCommand 且指定了 targetProtocolID → 路由到目标下位机
-    if (action.type == LinkageAction::SendCommand && action.targetProtocolID > 0) {
-        return action.targetProtocolID;
-    }
-    // 否则使用事件源下位机
-    return event.protocolID;
-}
-
-void LinkageEngine::dispatchAction(const Event& event,
-                                    const LinkageAction& action) {
-    int typeKey = static_cast<int>(action.type);
-
-    // 1. 全局 handler（protocolID = -1）
-    HandlerKey globalKey(typeKey, GLOBAL_PROTOCOL);
-    std::unordered_map<HandlerKey, std::vector<ActionHandler>, KeyHash>::iterator
-        globalIt = handlers_.find(globalKey);
-    if (globalIt != handlers_.end()) {
-        const std::vector<ActionHandler>& list = globalIt->second;
-        for (std::vector<ActionHandler>::const_iterator hit = list.begin();
-             hit != list.end(); ++hit) {
-            (*hit)(event, action);
-        }
-    }
-
-    // 2. per-protocolID handler
-    int protocolID = resolveProtocolID(event, action);
-    HandlerKey deviceKey(typeKey, protocolID);
-    std::unordered_map<HandlerKey, std::vector<ActionHandler>, KeyHash>::iterator
-        deviceIt = handlers_.find(deviceKey);
-    if (deviceIt != handlers_.end()) {
-        const std::vector<ActionHandler>& list = deviceIt->second;
-        for (std::vector<ActionHandler>::const_iterator hit = list.begin();
-             hit != list.end(); ++hit) {
-            (*hit)(event, action);
+        // 查 actionTable_
+        std::ostringstream key;
+        key << resolved.first << ":" << resolved.second;
+        std::unordered_map<std::string, ActionCallback>::iterator
+            found = actionTable_.find(key.str());
+        if (found != actionTable_.end()) {
+            found->second();   // 执行回调（lambda 已捕获所有参数）
         }
     }
 }
 
 void LinkageEngine::clearAll() {
-    handlers_.clear();
+    actionTable_.clear();
     eventConfig_.clear();
     levelDefaults_.clear();
 }

@@ -1,6 +1,5 @@
 #include "backend_bridge.h"
-#include "../backend/setup.h"
-#include "../backend/device_controllers_example.h"
+#include "../backend/action_registry.h"
 
 BackendBridge::BackendBridge(QObject* parent) : QObject(parent),
     configMgr_(nullptr), linkageEng_(nullptr), eventMgr_(nullptr), api_(nullptr) {}
@@ -13,44 +12,13 @@ BackendBridge::~BackendBridge() {
 }
 
 void BackendBridge::initialize() {
-    // 创建后端模块
     configMgr_  = new ConfigManager();
     linkageEng_ = new LinkageEngine();
     eventMgr_   = new EventManager(*configMgr_, *linkageEng_);
     api_        = new ExternalAPI(*eventMgr_, *configMgr_);
 
-    // 注册通用 handler（LockUI/UnlockUI/Buzzer）
-    registerLinkageHandlers(*linkageEng_);
-
-    // 各设备单例注册 SendCommand handler
-    BoilerController::instance().registerWith(*linkageEng_);
-    CoolingTowerController::instance().registerWith(*linkageEng_);
-
-    // 等级默认动作：任何 Emergency 事件自动附加 SendCommand(emergency_stop, target=2)
-    {
-        std::vector<LinkageAction> defaultEmergency;
-        defaultEmergency.push_back(
-            LinkageAction(LinkageAction::SendCommand, "emergency_stop", "", 2));
-        linkageEng_->setLevelDefault(EventLevel::Emergency, defaultEmergency);
-    }
-
-    // 预配置事件联动
-    {
-        std::vector<LinkageAction> active, clear;
-        active.push_back(LinkageAction(LinkageAction::SendCommand, "set_fan_speed", "1200", 2));
-        active.push_back(LinkageAction(LinkageAction::LockUI, "panel_main", "", 0));
-        linkageEng_->configureEvent("1-3-temp_high", active, clear);
-    }
-    {
-        std::vector<LinkageAction> active, clear;
-        active.push_back(LinkageAction(LinkageAction::SendCommand, "emergency_stop", "immediate", 2));
-        linkageEng_->configureEvent("2-1-vibration", active, clear);
-    }
-    {
-        std::vector<LinkageAction> active, clear;
-        active.push_back(LinkageAction(LinkageAction::LockUI, "panel_device4", "", 0));
-        linkageEng_->configureEvent("4-0-device_offline", active, clear);
-    }
+    // 集中注册所有能力 + 配置事件联动
+    ActionRegistry::setup(*linkageEng_);
 }
 
 QVector<BackendBridge::CatalogEntry> BackendBridge::getCatalog() const {
