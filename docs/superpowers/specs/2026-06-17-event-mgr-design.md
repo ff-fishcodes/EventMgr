@@ -1,7 +1,7 @@
 # 事件管理中心 — 设计方案
 
-> 版本：v4（修订版）
-> v3 → v4 变更：configureEvent 预配置事件联动表、targetProtocolID 支持跨设备联动
+> 版本：v5（修订版）
+> v4 → v5 变更：ActionRegistry 集中注册 + registerAction(name,callback)、移除 LinkageAction、UI 锁控改由前端自行处理
 
 ## 1. 概述
 
@@ -46,7 +46,8 @@
 |--------|------|
 | 事件编号 | `protocolID-frameID-报警字段` 组合键字符串 |
 | 接口风格 | Event 作为值对象入参，ExternalAPI 提供工厂方法 |
-| 联动机制 | 回调注册制，Event 携带 `vector<LinkageAction>`，LinkageEngine 分发执行 |
+| 联动机制 | 命名回调制：registerAction(name,callback) + configureEvent(id,{names}) |
+| UI 锁控 | 前端自行处理，后端只推送 alarm_active/alarm_cleared |
 | 并发模型 | 单线程事件循环 |
 | 持久化 | 不持久化，重启后从下位机上报重建 |
 | 规模 | 中等（5-20 下位机，≤100 状态帧） |
@@ -55,7 +56,7 @@
 | 告警降级 | 持久降级，精确到 protocolID+frameID+报警字段 |
 | 报警屏蔽 | 仅 UI 隐藏，后台继续记录和联动；UI 显示屏蔽计数提示 |
 | 降级与屏蔽 | 可独立或同时对同一事件生效 |
-| 管控动作 | 由业务在创建 Event 时指定联动内容；LinkageEngine 按注册 handler 执行 |
+| 管控动作 | ActionRegistry 集中注册，configureEvent 按名字绑定 |
 
 ---
 
@@ -93,87 +94,49 @@
       ──────────────►│  ExternalAPI                        ├──────────────► 前端
                      │   ├─ createAlarm()  (工厂方法)       │
 已有: 通信监测       │   ├─ addEvent()     (入口)           │  已有: LogWriter
-      ──────────────►│   └─ clearEvent()   (入口)           ├──────────────► 日志
-                     │                                     │
-                     │  EventManager                       │  已有: 管控指令发送
-                     │   ├─ 查重 + 存储                     ├──────────────► 下位机
-                     │   └─ 调 ConfigManager 计算有效等级   │
+      ──────────────►│   ├─ clearEvent()   (入口)           ├──────────────► 日志
+                     │   └─ getAlarmCatalog()               │
+                     │                                     │  已有: 管控指令发送
+                     │  EventManager                       ├──────────────► 下位机
+                     │   └─ 查重 / 存储 / 协调             │
                      │                                     │
                      │  LinkageEngine                      │
-                     │   ├─ registerHandler()  注册回调     │
-                     │   ├─ executeActive()    遍历actions  │
-                     │   └─ executeCleared()   分发执行     │
+                     │   ├─ registerAction()  注册能力      │
+                     │   ├─ configureEvent()  绑定事件      │
+                     │   └─ executeActive/Cleared           │
+                     │                                     │
+                     │  ActionRegistry                     │
+                     │   └─ setup() 集中注册所有能力+配置   │
                      │                                     │
                      │  ConfigManager                      │
-                     │   ├─ 降级映射                        │
-                     │   └─ 屏蔽集合                        │
+                     │   └─ 降级映射 / 屏蔽集合            │
                      └──────────────────────────────────────┘
 ```
 
 ### 4.2 核心数据结构
 
-事件等级、状态、联动动作和事件值对象统一定义：
-
 ```cpp
-// ============================
-// 事件等级
-// ============================
-enum class EventLevel {
-    Emergency = 1,   // 紧急故障
-    Serious   = 2,   // 严重故障
-    General   = 3,   // 一般故障
-    Info      = 4    // 提示
-};
-
-// ============================
-// 事件状态
-// ============================
+enum class EventLevel { Emergency = 1, Serious = 2, General = 3, Info = 4 };
 enum class EventState { Active, Cleared };
-
-// ============================
-// 联动动作
-// ============================
-struct LinkageAction {
-    enum Type {
-        LockUI,       // 锁前端控件
-        UnlockUI,     // 解锁前端控件
-        SendCommand,  // 向下位机发管控指令
-        Buzzer,       // 蜂鸣器提示（预留）
-        // 后续扩展只需加枚举值，注册新 handler 即可
-    };
-
-    Type        type;
-    std::string target;   // UI控件标识 / 指令名称 / 蜂鸣器模式名
-    std::string param;    // 附加参数（如指令内容、蜂鸣模式）
-};
-
-// ============================
-// 事件编号
-// ============================
 using EventId = std::string;  // "protocolID-frameID-报警字段"
 
-// ============================
-// 事件值对象
-// ============================
 struct Event {
-    EventId     id;               // "protocolID-frameID-alarmField"
+    EventId     id;
     int         protocolID;
     int         frameID;
     std::string alarmField;
     std::string description;
-    EventLevel  originalLevel;    // 业务创建时指定的原始等级
-    EventLevel  effectiveLevel;   // 经降级后的实际等级（addEvent 时由 ConfigManager 计算）
-    std::vector<LinkageAction> activeActions;   // 告警产生时的联动列表
-    std::vector<LinkageAction> clearActions;    // 告警消除时的联动列表
+    EventLevel  originalLevel;
+    EventLevel  effectiveLevel;  // addEvent 时由 ConfigManager 计算
     EventState  state;
+    std::vector<std::string> activeActions;  // 兜底（通常为空，由配置表决定）
+    std::vector<std::string> clearActions;
 };
 ```
 
 **设计要点：**
-- `LinkageAction` 是联动的基本单元。一个事件可携带多个 action，对应"同一故障联动不止一个"
-- `target` 是语义标识（如 `"panel_operation"`），不耦合具体的 Qt widget 名
-- `targetProtocolID` 用于 SendCommand 指定目标下位机（>0 时路由到指定设备，0 或未设则路由到事件源），支持跨设备联动
-- `activeActions` / `clearActions` 可通过 `configureEvent()` 在启动时预配置，Event 对象上可以不填（仅用于少数动态场景兜底）
+- 联动不再用结构体，改用名字字符串。`registerAction("cooler_fan", callback)` 注册能力，`configureEvent(id, {"cooler_fan"})` 绑定
+- UI 锁控不在后端注册，前端收到 alarm_active/alarm_cleared 后自行查映射表处理
 
 ---
 
@@ -204,30 +167,30 @@ public:
 ```
 
 **设计要点：**
-- 断联作为一种事件，与普通告警统一走 createAlarm + addEvent / clearEvent 入口，不单独设接口
-- Event 的联动内容可通过两种方式指定：
-  1. **推荐**：启动时用 `LinkageEngine::configureEvent()` 预配置，运行时 Event 无需携带 actions
-  2. **兜底**：Event 自带的 activeActions/clearActions（仅用于少数动态场景）
-- addEvent 负责查重、降级计算、存储、触发联动（自动查预配置表）、通知
+- 断联与普通告警统一走 createAlarm + addEvent / clearEvent 入口
+- 联动由 ActionRegistry 在启动时集中配置，addEvent 自动查表
+- addEvent 负责查重、降级计算、存储、触发联动、通知
 
 **业务使用示例：**
 
 ```cpp
 // ===== 启动阶段 =====
-ExternalAPI api;
 LinkageEngine engine;
 
-// 配置事件联动（一次性）
-engine.configureEvent("1-3-temp_high",
-    { SendCommand("emergency_stop", "99", targetProtocolID=1),   // 锅炉自停
-      SendCommand("set_fan_speed", "1200", targetProtocolID=2) },// 冷却塔提速（跨设备）
-    { UnlockUI("panel_main") }
-);
+// 注册能力
+engine.registerAction("cooler_stop", []{ /* 冷却塔停机 */ });
+engine.registerAction("cooler_fan",  []{ /* 冷却塔调转速 */ });
+
+// 绑定事件
+engine.configureEvent("1-3-temp_high", {"cooler_fan"}, {});
+
+// 等级默认
+engine.setLevelDefault(Emergency, {"cooler_stop"});
 
 // ===== 运行阶段 =====
-// NetworkReceiver 只需要知道事件标识，不需要关心联动
-Event event = api.createAlarm(1, 3, "temp_high", EventLevel::Emergency, "下位机1-温度过高");
-api.addEvent(event);  // Event 上无 actions，引擎自动查配置表
+Event event = api.createAlarm(1, 3, "temp_high", Emergency, "温度过高");
+api.addEvent(event);  // Event 无 actions，引擎自动查表
+```
 
 ---
 
@@ -274,7 +237,7 @@ addEvent(event)
         │
         ▼
       if (!ConfigManager.isShielded(event.id)):
-        调用 Socket服务端 → 通知前端（含 uiActions）
+        调用 Socket服务端 → 通知前端 alarm_active
         │
         ▼
       调用 LogWriter → 写日志: "{下位机}-{故障名}-发生"
@@ -361,102 +324,52 @@ originalLevel（业务创建时指定）
 
 ### 4.6 LinkageEngine（联动引擎）
 
-不再按等级 switch，改为**回调注册制**。支持两种注册模式：
-
-- **全局注册** `registerHandler(type, handler)` — 匹配所有 protocolID，用于 LockUI/UnlockUI/Buzzer
-- **按设备注册** `registerHandler(type, protocolID, handler)` — 仅匹配指定下位机，用于 SendCommand
-
-分发时先执行全局 handler，再执行匹配 protocolID 的 handler，两者都执行。
+**命名回调制。** `registerAction` 注册能力，`configureEvent` 绑定能力到事件，`setLevelDefault` 设置等级默认。
 
 ```cpp
 class LinkageEngine {
 public:
-    using ActionHandler = std::function<void(const Event&, const LinkageAction&)>;
+    using ActionCallback = std::function<void()>;
 
-    // 全局注册：匹配所有 protocolID（LockUI / UnlockUI / Buzzer 用）
-    void registerHandler(LinkageAction::Type type, ActionHandler handler);
-
-    // 按 protocolID 注册：仅匹配指定下位机（SendCommand 用，每个下位机单例独立注册）
-    void registerHandler(LinkageAction::Type type, int protocolID, ActionHandler handler);
-
+    void registerAction(const std::string& name, ActionCallback callback);
+    void configureEvent(const EventId& id, const vector<string>& active, const vector<string>& clear);
+    void setLevelDefault(EventLevel level, const vector<string>& names);
     void executeActive(const Event& event);
     void executeCleared(const Event& event);
 
 private:
-    // Key: (actionType, protocolID)，protocolID = -1 表示全局
-    using HandlerKey = std::pair<int, int>;
-    std::unordered_map<HandlerKey, std::vector<ActionHandler>, KeyHash> handlers_;
+    unordered_map<string, ActionCallback> actionTable_;  // name → callback
+    unordered_map<EventId, pair<vector<string>,vector<string>>> eventConfig_;
+    unordered_map<int, vector<string>> levelDefaults_;
 };
 ```
 
-**初始化时注册 handler：**
-
-```cpp
-LinkageEngine engine;
-
-// ===== 全局 handler（所有 protocolID 都匹配）=====
-
-engine.registerHandler(LinkageAction::LockUI, [](const Event& e, const LinkageAction& a) {
-    SocketServer::notifyFrontend(/* lock_ui JSON */);
-});
-
-engine.registerHandler(LinkageAction::UnlockUI, [](const Event& e, const LinkageAction& a) {
-    SocketServer::notifyFrontend(/* unlock_ui JSON */);
-});
-
-// ===== 按 protocolID 注册（各下位机单例自行注册）=====
-
-// 锅炉控制单例（protocolID=1）
-BoilerController::instance().registerWith(engine);
-// 内部: engine.registerHandler(SendCommand, 1, [this](auto& e, auto& a) { dispatch(a.target, a.param); });
-
-// 冷却塔控制单例（protocolID=2）
-CoolingTowerController::instance().registerWith(engine);
-// 内部: engine.registerHandler(SendCommand, 2, ...)
-```
-
-**执行流程：**
-
-```
-executeActive(event)
-  │
-  ▼
-遍历 event.activeActions:
-  对每个 action:
-    1. 查 handlers_[(type, -1)]       ← 全局 handler
-       → 依次调用
-    2. 查 handlers_[(type, protocolID)] ← 设备专属 handler
-       → 依次调用
-```
+**运行时链路：** `executeActive` → `resolveActiveNames`（事件配置+等级默认合并）→ 遍历 names → 查 `actionTable_` → 执行回调。
 
 **设计要点：**
-- 新增联动类型只需：定义新的 `LinkageAction::Type` 枚举值 → 写一个 `registerHandler` 调用。LinkageEngine 本身零改动
-- 新增设备控制单例时只需在其 `registerWith()` 中加一行 `registerHandler(SendCommand, myProtocolID, handler)`
-- 同一事件多个 action 按注册顺序依次执行
-- handler 内调用已有模块接口或直接操作 Qt widget，LinkageEngine 不直接依赖具体模块
+- 所有参数在 lambda 中捕获，引擎不需要传参
+- Info 等级跳过联动
+- 清除侧不自动 mirror（UI 由前端自行处理）
 
-### 4.7 前后端部署适配
+### 4.7 ActionRegistry（能力注册中心）
 
-通过 `FrontendCallbacks` 接口契约，同一套后端核心兼容两种部署模式：
-
-| 模式 | LockUI/UnlockUI 回调 | 事件列表通知回调 |
-|------|---------------------|------------------|
-| 分离模式 | SocketServer 发送 JSON | SocketServer 发送 JSON |
-| 一体模式 | 直接调 Qt widget setEnabled | 直接更新 Qt 事件列表 |
-
-EventManager 构造函数可注入 `NotifyCallback`：有回调走回调，不注入则默认走 SocketServer 桩（向后兼容）。
+集中注册所有能力和事件配置，替代散落在各处的注册代码。
 
 ```cpp
-// 分离模式
-auto cb = createSocketBasedCallbacks();
-EventManager mgr(config, linkage, cb.updateEventList);
-
-// 一体模式
-auto cb = createDirectCallbacks();
-EventManager mgr(config, linkage, cb.updateEventList);
+class ActionRegistry {
+public:
+    static void setup(LinkageEngine& engine) {
+        engine.registerAction("cooler_stop", []{ /* 冷却塔停机 */ });
+        engine.registerAction("cooler_fan",  []{ /* 冷却塔调转速 */ });
+        engine.configureEvent("1-3-temp_high", {"cooler_fan"}, {});
+        engine.setLevelDefault(Emergency, {"cooler_stop"});
+    }
+};
 ```
 
-详见 `backend/frontend_adapter.h` 和 `backend/device_controllers_example.h`。
+### 4.8 前后端部署适配
+
+EventManager 构造函数可注入 `NotifyCallback`：有回调走回调，不注入则默认走 SocketServer 桩。前后端分离/一体通过切换回调实现。
 
 ---
 
@@ -608,3 +521,4 @@ void onSocketMessage(const QJsonObject& msg) {
 | v2 | 2026-06-17 | 修订：Event 值对象入参、ExternalAPI 工厂方法、LinkageEngine 回调注册制、前后端协议增加 uiActions 携带联动 target |
 | v3 | 2026-06-17 | 修订：LinkageEngine per-protocolID 注册、前后端兼容适配（FrontendCallbacks）、notifyFrontend 参数 bool 化 |
 | v4 | 2026-06-17 | 修订：configureEvent 预配置事件联动表、targetProtocolID 跨设备联动、Event 的 actions 改为可选 |
+| v5 | 2026-06-26 | 修订：ActionRegistry 集中注册、registerAction(name,callback)、移除 LinkageAction、UI 锁控改由前端处理 |

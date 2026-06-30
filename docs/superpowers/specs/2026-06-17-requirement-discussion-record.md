@@ -553,4 +553,19 @@ v2 修订版设计文档已更新：
 
 ---
 
+---
+
+## 13. ActionRegistry 实施与 UI 解耦
+
+> 日期：2026-06-26
+
+### 13.1 registerAction 简化
+移除 protocolID 参数，`registerAction(name, callback)` 只负责声明能力。`configureEvent(id, {names})` 负责绑定。
+
+### 13.2 UI 锁控移出后端
+LockUI/UnlockUI 从后端 LinkageEngine 完全移除，清除侧自动 mirror 删除。前端收到 alarm_active/alarm_cleared 后自行处理锁控。
+
+### 13.3 文件清理
+删除 `setup.h/cpp`、`frontend_adapter.h`、`device_controllers_example.h`，逻辑迁移至 ActionRegistry。
+
 *记录完毕。本文档供后续需求回顾和设计决策追溯使用。*
