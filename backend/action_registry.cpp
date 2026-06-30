@@ -1,37 +1,9 @@
 #include "action_registry.h"
-#include "stubs/socket_server.h"
 #include "stubs/cmd_sender.h"
 #include "stubs/buzzer_control.h"
-#include <sstream>
 #include <iostream>
 
 void ActionRegistry::setup(LinkageEngine& engine) {
-
-    // ============================================================
-    // 全局 UI 动作（protocolID=0）
-    // ============================================================
-
-    engine.registerAction(0, "lock_ui:panel_main", []() {
-        std::cout << "[Action] lock_ui panel_main" << std::endl;
-        SocketServer::notifyFrontend(
-            "{\"type\":\"lock_ui\",\"target\":\"panel_main\"}");
-    });
-
-    engine.registerAction(0, "unlock_ui:panel_main", []() {
-        std::cout << "[Action] unlock_ui panel_main" << std::endl;
-        SocketServer::notifyFrontend(
-            "{\"type\":\"unlock_ui\",\"target\":\"panel_main\"}");
-    });
-
-    engine.registerAction(0, "lock_ui:panel_device4", []() {
-        SocketServer::notifyFrontend(
-            "{\"type\":\"lock_ui\",\"target\":\"panel_device4\"}");
-    });
-
-    engine.registerAction(0, "unlock_ui:panel_device4", []() {
-        SocketServer::notifyFrontend(
-            "{\"type\":\"unlock_ui\",\"target\":\"panel_device4\"}");
-    });
 
     // ============================================================
     // 下位机1：锅炉
@@ -70,23 +42,22 @@ void ActionRegistry::setup(LinkageEngine& engine) {
     });
 
     // ============================================================
-    // 事件联动配置
+    // 事件联动配置（只含设备命令，UI 锁控由前端自行处理）
     // ============================================================
 
-    // 锅炉温度过高（Emergency）：冷却塔提速 + 锁面板
-    // emergency_stop 由 setLevelDefault(Emergency) 自动附加
+    // 锅炉温度过高：冷却塔提速，emergency_stop 由 setLevelDefault 自动附加
     engine.configureEvent("1-3-temp_high",
-        {"2:fan_high", "lock_ui:panel_main"},
+        {"2:fan_high"},
         {});
 
-    // 冷却塔振动异常（Serious）：自己停机
+    // 冷却塔振动异常：自己停机
     engine.configureEvent("2-1-vibration",
         {"emergency_stop"},
         {});
 
-    // 下位机4断联：锁界面
+    // 下位机4断联（无设备命令，前端收到 alarm_active 自行处理 UI）
     engine.configureEvent("4-0-device_offline",
-        {"lock_ui:panel_device4"},
+        {},
         {});
 
     // ============================================================

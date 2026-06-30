@@ -91,28 +91,14 @@ std::vector<std::string> LinkageEngine::resolveClearNames(const Event& event) {
         it = eventConfig_.find(event.id);
 
     const std::vector<std::string>* explicitClear = NULL;
-    const std::vector<std::string>* activeSrc     = NULL;
 
     if (it != eventConfig_.end()) {
         explicitClear = &it->second.second;
-        activeSrc     = &it->second.first;
     } else {
         explicitClear = &event.clearActions;
-        activeSrc     = &event.activeActions;
     }
 
-    // 1. 显式清除动作
     result.insert(result.end(), explicitClear->begin(), explicitClear->end());
-
-    // 2. 自动 mirror: "lock_ui:xxx" → "unlock_ui:xxx"
-    for (std::vector<std::string>::const_iterator i = activeSrc->begin();
-         i != activeSrc->end(); ++i) {
-        if (i->compare(0, 8, "lock_ui:") == 0) {
-            std::string unlockName = "unlock_ui:" + i->substr(8);
-            // 保持前缀: 若原名字带 protocolID 前缀则保留
-            result.push_back(unlockName);
-        }
-    }
 
     return result;
 }
