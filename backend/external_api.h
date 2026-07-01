@@ -20,6 +20,7 @@ class ConfigManager;
 class ExternalAPI {
 public:
     ExternalAPI(EventManager& eventMgr, ConfigManager& configMgr);
+    ~ExternalAPI() {}
 
     // ========= 工厂方法 =========
 

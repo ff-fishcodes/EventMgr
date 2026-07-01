@@ -25,6 +25,8 @@ public:
     EventManager(ConfigManager& configMgr, LinkageEngine& linkageEng,
                  NotifyCallback notifyCb);
 
+    ~EventManager() {}
+
     // 处理告警产生
     void processAddEvent(const Event& event);
 

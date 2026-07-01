@@ -20,6 +20,9 @@ class LinkageEngine {
 public:
     using ActionCallback = std::function<void()>;
 
+    LinkageEngine() {}
+    ~LinkageEngine() {}
+
     // 注册一个命名能力
     void registerAction(const std::string& name, ActionCallback callback);
 

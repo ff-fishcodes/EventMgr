@@ -13,6 +13,9 @@
 // ============================================================
 class ConfigManager {
 public:
+    ConfigManager() {}
+    ~ConfigManager() {}
+
     // ========= 降级相关 =========
 
     // 设置降级：将指定事件的报警等级降级为 newLevel
