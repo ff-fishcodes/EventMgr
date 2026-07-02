@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AlarmCatalogWidget</class>
+ <widget class="QWidget" name="AlarmCatalogWidget">
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item>
+    <widget class="QLabel" name="titleLabel">
+     <property name="text">
+      <string>报警配置管理</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size:16px; font-weight:bold;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="hintLabel">
+     <property name="text">
+      <string>可在此页对任一报警预先设置降级或屏蔽，报警产生时自动生效。</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">color:gray;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTableWidget" name="catalogTable">
+     <property name="editTriggers">
+      <set>QAbstractItemView::NoEditTriggers</set>
+     </property>
+     <property name="selectionBehavior">
+      <enum>QAbstractItemView::SelectRows</enum>
+     </property>
+     <attribute name="horizontalHeaderStretchLastSection">
+      <bool>true</bool>
+     </attribute>
+     <column>
+      <property name="text">
+       <string>事件编号</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>报警描述</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>原始等级</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>降级为提示</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>屏蔽展示</string>
+      </property>
+     </column>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="btnLayout">
+     <item>
+      <widget class="QPushButton" name="refreshBtn">
+       <property name="text">
+        <string>刷新</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="applyBtn">
+       <property name="text">
+        <string>应用配置</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-weight:bold;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="btnSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="statusLabel">
+     <property name="text">
+      <string/>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+</ui>

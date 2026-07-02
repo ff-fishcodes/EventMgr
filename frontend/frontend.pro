@@ -8,6 +8,10 @@ TEMPLATE = app
 CONFIG  += c++11
 TARGET   = EventMgrFrontend
 
+FORMS += \
+    event_list_widget.ui \
+    alarm_catalog_widget.ui
+
 SOURCES += \
     main.cpp \
     eventmgr_widget.cpp \

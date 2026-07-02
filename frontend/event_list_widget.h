@@ -2,10 +2,11 @@
 #define EVENT_LIST_WIDGET_H
 
 #include <QWidget>
-#include <QTableWidget>
-#include <QLabel>
 #include <QTimer>
 #include "backend_bridge.h"
+
+// UI 生成的头文件（qmake 自动从 .ui 生成）
+#include "ui_event_list_widget.h"
 
 class EventListWidget : public QWidget {
     Q_OBJECT
@@ -16,15 +17,15 @@ public slots:
     void refresh();
 
 private slots:
-    void onSimulateBtn();
-    void onClearSelected();
+    void on_simBtn_clicked();
+    void on_clearBtn_clicked();
+    void onClearRow(const QString& id);
 
 private:
-    void setupUI();
+    void fillCombo();
 
+    Ui::EventListWidget ui;
     BackendBridge* bridge_;
-    QTableWidget*  table_;
-    QLabel*        statusLabel_;
     QTimer*        refreshTimer_;
 };
 
