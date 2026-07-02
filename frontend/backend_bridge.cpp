@@ -21,6 +21,28 @@ void BackendBridge::initialize() {
     ActionRegistry::setup(*linkageEng_);
 }
 
+void BackendBridge::triggerAlarm(const QString& id, bool isActive) {
+    QStringList parts = id.split('-');
+    if (parts.size() != 3) return;
+    api_->triggerAlarm(parts[0].toInt(), parts[1].toInt(),
+                       parts[2].toStdString(), isActive);
+}
+
+QVector<BackendBridge::EventEntry> BackendBridge::getActiveEvents() const {
+    QVector<EventEntry> result;
+    std::vector<Event> events = api_->getActiveEvents();
+    for (std::vector<Event>::const_iterator it = events.begin();
+         it != events.end(); ++it) {
+        EventEntry e;
+        e.id          = QString::fromStdString(it->id);
+        e.description = QString::fromStdString(it->description);
+        e.level       = static_cast<int>(it->effectiveLevel);
+        e.shielded    = configMgr_->isShielded(it->id);
+        result.append(e);
+    }
+    return result;
+}
+
 QVector<BackendBridge::CatalogEntry> BackendBridge::getCatalog() const {
     QVector<CatalogEntry> result;
     std::vector<AlarmDef> defs = api_->getAlarmCatalog();

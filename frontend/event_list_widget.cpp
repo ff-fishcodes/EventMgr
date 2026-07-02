@@ -6,29 +6,54 @@
 #include <QColor>
 #include <QComboBox>
 
+static QColor levelColor(int level) {
+    switch (level) {
+        case 1: return Qt::red;
+        case 2: return QColor(255, 140, 0);
+        case 3: return QColor(200, 200, 0);
+        default: return Qt::blue;
+    }
+}
+
+static QString levelText(int level) {
+    switch (level) {
+        case 1: return "紧急";
+        case 2: return "严重";
+        case 3: return "一般";
+        default: return "提示";
+    }
+}
+
 EventListWidget::EventListWidget(BackendBridge* bridge, QWidget* parent)
     : QWidget(parent), bridge_(bridge) {
     setupUI();
+    refresh();
+
+    // 每秒自动刷新
+    refreshTimer_ = new QTimer(this);
+    connect(refreshTimer_, SIGNAL(timeout()), this, SLOT(refresh()));
+    refreshTimer_->start(1000);
 }
 
 void EventListWidget::setupUI() {
     QVBoxLayout* layout = new QVBoxLayout(this);
 
-    // 标题
     QLabel* title = new QLabel("当前活跃事件");
     title->setStyleSheet("font-size:16px; font-weight:bold;");
     layout->addWidget(title);
 
-    // 表格
+    // 表格：ID | 描述 | 等级 | 屏蔽 | 操作
     table_ = new QTableWidget(0, 5, this);
-    table_->setHorizontalHeaderLabels({"事件编号", "描述", "等级", "状态", "屏蔽"});
+    table_->setHorizontalHeaderLabels(
+        {"事件编号", "描述", "等级", "屏蔽", "操作"});
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     layout->addWidget(table_);
 
-    // 模拟报警按钮
+    // 按钮栏：模拟报警 + 清除选中
     QHBoxLayout* btnLayout = new QHBoxLayout();
+
     QComboBox* combo = new QComboBox(this);
     QVector<BackendBridge::CatalogEntry> catalog = bridge_->getCatalog();
     for (int i = 0; i < catalog.size(); ++i) {
@@ -37,16 +62,18 @@ void EventListWidget::setupUI() {
     }
     combo->setObjectName("alarmCombo");
 
-    QPushButton* btn = new QPushButton("模拟报警", this);
-    btn->setObjectName("simBtn");
-    connect(btn, SIGNAL(clicked()), this, SLOT(onSimulateBtn()));
+    QPushButton* simBtn = new QPushButton("模拟报警", this);
+    connect(simBtn, SIGNAL(clicked()), this, SLOT(onSimulateBtn()));
+
+    QPushButton* clearBtn = new QPushButton("清除选中", this);
+    connect(clearBtn, SIGNAL(clicked()), this, SLOT(onClearSelected()));
 
     btnLayout->addWidget(combo);
-    btnLayout->addWidget(btn);
+    btnLayout->addWidget(simBtn);
+    btnLayout->addWidget(clearBtn);
     btnLayout->addStretch();
     layout->addLayout(btnLayout);
 
-    // 状态
     statusLabel_ = new QLabel("就绪");
     layout->addWidget(statusLabel_);
 }
@@ -56,54 +83,49 @@ void EventListWidget::onSimulateBtn() {
     if (!combo) return;
     QString id = combo->currentData().toString();
 
-    // 从 catalog 找定义
-    QVector<BackendBridge::CatalogEntry> catalog = bridge_->getCatalog();
-    for (int i = 0; i < catalog.size(); ++i) {
-        if (catalog[i].id == id) {
-            const BackendBridge::CatalogEntry& e = catalog[i];
-            Event event = bridge_->api().createAlarm(
-                e.id.section('-', 0, 0).toInt(),
-                e.id.section('-', 1, 1).toInt(),
-                e.id.section('-', 2).toStdString(),
-                static_cast<EventLevel>(e.originalLevel),
-                e.description.toStdString());
-            bridge_->api().addEvent(event);
-            break;
-        }
-    }
+    // 使用 triggerAlarm（observe 对接方式）
+    bridge_->triggerAlarm(id, true);
+    refresh();
+}
+
+void EventListWidget::onClearSelected() {
+    int row = table_->currentRow();
+    if (row < 0) return;
+
+    QTableWidgetItem* item = table_->item(row, 0);
+    if (!item) return;
+
+    bridge_->triggerAlarm(item->text(), false);
     refresh();
 }
 
 void EventListWidget::refresh() {
     table_->setRowCount(0);
 
-    QVector<BackendBridge::CatalogEntry> catalog = bridge_->getCatalog();
-    // 遍历 catalog，对已在 ConfigManager 有配置的项展示当前状态
-    // 实际操作中应结合活跃事件表，此处简化展示
+    QVector<BackendBridge::EventEntry> events = bridge_->getActiveEvents();
+    for (int i = 0; i < events.size(); ++i) {
+        const BackendBridge::EventEntry& e = events[i];
+        int row = table_->rowCount();
+        table_->insertRow(row);
 
-    statusLabel_->setText("已刷新");
-}
+        table_->setItem(row, 0, new QTableWidgetItem(e.id));
+        table_->setItem(row, 1, new QTableWidgetItem(e.description));
 
-void EventListWidget::addRow(const BackendBridge::CatalogEntry& entry) {
-    int row = table_->rowCount();
-    table_->insertRow(row);
+        QTableWidgetItem* levelItem = new QTableWidgetItem(levelText(e.level));
+        levelItem->setForeground(levelColor(e.level));
+        table_->setItem(row, 2, levelItem);
 
-    table_->setItem(row, 0, new QTableWidgetItem(entry.id));
-    table_->setItem(row, 1, new QTableWidgetItem(entry.description));
+        QTableWidgetItem* shieldItem = new QTableWidgetItem(e.shielded ? "是" : "否");
+        table_->setItem(row, 3, shieldItem);
 
-    QString levelStr;
-    QColor color;
-    switch (entry.originalLevel) {
-        case 1: levelStr = "紧急"; color = Qt::red;     break;
-        case 2: levelStr = "严重"; color = QColor(255,140,0); break;
-        case 3: levelStr = "一般"; color = QColor(200,200,0); break;
-        default: levelStr = "提示"; color = Qt::blue;   break;
+        QPushButton* clearRowBtn = new QPushButton("消除");
+        connect(clearRowBtn, &QPushButton::clicked, this, [this, id = e.id]() {
+            bridge_->triggerAlarm(id, false);
+            refresh();
+        });
+        table_->setCellWidget(row, 4, clearRowBtn);
     }
 
-    QTableWidgetItem* levelItem = new QTableWidgetItem(levelStr);
-    levelItem->setForeground(color);
-    table_->setItem(row, 2, levelItem);
-
-    table_->setItem(row, 3, new QTableWidgetItem("活跃"));
-    table_->setItem(row, 4, new QTableWidgetItem(entry.shielded ? "是" : "否"));
+    statusLabel_->setText(QString("活跃 %1 个  屏蔽 %2 个")
+        .arg(events.size()).arg(bridge_->shieldCount()));
 }

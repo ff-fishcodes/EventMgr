@@ -23,10 +23,21 @@ public:
     // 初始化后端模块 + 注册 handler + 配置事件联动
     void initialize();
 
-    // 后端接口代理
     ExternalAPI& api() { return *api_; }
 
-    // 查询报警目录（转为 Qt 友好格式）
+    // observe 对接
+    void triggerAlarm(const QString& id, bool isActive);
+
+    // 获取活跃事件
+    struct EventEntry {
+        QString id;
+        QString description;
+        int     level;
+        bool    shielded;
+    };
+    QVector<EventEntry> getActiveEvents() const;
+
+    // 查询报警目录
     struct CatalogEntry {
         QString id;
         QString description;
