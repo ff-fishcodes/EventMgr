@@ -27,6 +27,36 @@ Event ExternalAPI::createAlarm(int protocolID, int frameID,
     return event;
 }
 
+void ExternalAPI::triggerAlarm(int protocolID, int frameID,
+                                 const std::string& alarmField, bool isActive) {
+    if (!isActive) {
+        clearEvent(protocolID, frameID, alarmField);
+        return;
+    }
+
+    // 构造 EventId 用于查目录
+    std::ostringstream idStr;
+    idStr << protocolID << "-" << frameID << "-" << alarmField;
+    std::string targetId = idStr.str();
+
+    // 从报警目录查定义（等级和描述由配置模块提供，observe 不需要知道）
+    std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();
+    for (std::vector<AlarmDef>::const_iterator it = defs.begin();
+         it != defs.end(); ++it) {
+        if (it->id == targetId) {
+            Event event = createAlarm(protocolID, frameID, alarmField,
+                                       it->originalLevel, it->description);
+            addEvent(event);
+            return;
+        }
+    }
+
+    // 目录中找不到 → 用默认值（提示等级 + 字段名作描述）
+    Event event = createAlarm(protocolID, frameID, alarmField,
+                               EventLevel::Info, alarmField);
+    addEvent(event);
+}
+
 void ExternalAPI::addEvent(const Event& event) {
     eventMgr_.processAddEvent(event);
 }

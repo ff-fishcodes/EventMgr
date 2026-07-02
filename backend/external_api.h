@@ -29,7 +29,12 @@ public:
                       EventLevel level,
                       const std::string& description);
 
-    // ========= 入口方法 =========
+    // observe 组件对接：报警位变化时调用，自动查等级+描述
+    // isActive=true → 产生事件，isActive=false → 消除事件
+    void triggerAlarm(int protocolID, int frameID,
+                      const std::string& alarmField, bool isActive);
+
+    // ========= 入口方法（可独立使用）=========
 
     void addEvent(const Event& event);
     void clearEvent(int protocolID, int frameID, const std::string& alarmField);
