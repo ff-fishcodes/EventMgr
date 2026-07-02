@@ -41,6 +41,9 @@ public:
     // 当前活跃事件数量
     size_t activeCount() const;
 
+    // 获取所有当前活跃事件
+    std::vector<Event> getActiveEvents() const;
+
     // 按 protocolID 查找该下位机的所有活跃事件（用于断联批量处理等）
     std::vector<Event> findEventsByProtocolID(int protocolID) const;
 

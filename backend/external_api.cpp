@@ -66,6 +66,10 @@ void ExternalAPI::clearEvent(int protocolID, int frameID,
     eventMgr_.processClearEvent(protocolID, frameID, alarmField);
 }
 
+std::vector<Event> ExternalAPI::getActiveEvents() const {
+    return eventMgr_.getActiveEvents();
+}
+
 std::vector<AlarmDef> ExternalAPI::getAlarmCatalog() const {
     // 1. 从项目配置模块获取所有报警静态定义（桩）
     std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();

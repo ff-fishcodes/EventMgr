@@ -83,6 +83,15 @@ const Event* EventManager::findEvent(const EventId& id) const {
     return NULL;
 }
 
+std::vector<Event> EventManager::getActiveEvents() const {
+    std::vector<Event> result;
+    for (std::unordered_map<EventId, Event>::const_iterator it = activeEvents_.begin();
+         it != activeEvents_.end(); ++it) {
+        result.push_back(it->second);
+    }
+    return result;
+}
+
 size_t EventManager::activeCount() const {
     return activeEvents_.size();
 }

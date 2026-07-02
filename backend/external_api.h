@@ -41,6 +41,9 @@ public:
 
     // ========= 查询方法 =========
 
+    // 获取当前所有活跃事件
+    std::vector<Event> getActiveEvents() const;
+
     // 获取全量报警目录（含降级/屏蔽状态），供前端配置页面使用
     std::vector<AlarmDef> getAlarmCatalog() const;
 
