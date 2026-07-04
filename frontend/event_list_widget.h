@@ -18,8 +18,6 @@ public slots:
 
 private slots:
     void on_simBtn_clicked();
-    void on_clearBtn_clicked();
-    void onClearRow(const QString& id);
 
 private:
     void fillCombo();

@@ -41,12 +41,17 @@
      </column>
      <column>
       <property name="text">
-       <string>屏蔽</string>
+       <string>状态</string>
       </property>
      </column>
      <column>
       <property name="text">
-       <string>操作</string>
+       <string>降级</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>屏蔽</string>
       </property>
      </column>
     </widget>
@@ -60,13 +65,6 @@
       <widget class="QPushButton" name="simBtn">
        <property name="text">
         <string>模拟报警</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="clearBtn">
-       <property name="text">
-        <string>清除选中</string>
        </property>
       </widget>
      </item>

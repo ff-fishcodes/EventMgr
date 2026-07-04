@@ -1,7 +1,6 @@
 #include "event_list_widget.h"
-#include <QPushButton>
+#include <QCheckBox>
 #include <QColor>
-#include <QHeaderView>
 
 static QColor levelColor(int level) {
     switch (level) {
@@ -48,24 +47,12 @@ void EventListWidget::on_simBtn_clicked() {
     refresh();
 }
 
-void EventListWidget::on_clearBtn_clicked() {
-    int row = ui.eventTable->currentRow();
-    if (row < 0) return;
-    QTableWidgetItem* item = ui.eventTable->item(row, 0);
-    if (!item) return;
-    bridge_->triggerAlarm(item->text(), false);
-    refresh();
-}
-
-void EventListWidget::onClearRow(const QString& id) {
-    bridge_->triggerAlarm(id, false);
-    refresh();
-}
-
 void EventListWidget::refresh() {
     ui.eventTable->setRowCount(0);
 
     QVector<BackendBridge::EventEntry> events = bridge_->getActiveEvents();
+    QVector<BackendBridge::CatalogEntry> catalog = bridge_->getCatalog();
+
     for (int i = 0; i < events.size(); ++i) {
         const BackendBridge::EventEntry& e = events[i];
         int row = ui.eventTable->rowCount();
@@ -78,14 +65,38 @@ void EventListWidget::refresh() {
         levelItem->setForeground(levelColor(e.level));
         ui.eventTable->setItem(row, 2, levelItem);
 
-        ui.eventTable->setItem(row, 3, new QTableWidgetItem(e.shielded ? "是" : "否"));
+        // 查当前降级/屏蔽状态（与报警配置页共享 ConfigManager）
+        bool downgraded = false;
+        for (int j = 0; j < catalog.size(); ++j) {
+            if (catalog[j].id == e.id) {
+                downgraded = catalog[j].downgraded && catalog[j].downgradeTo == 4;
+                break;
+            }
+        }
 
-        QPushButton* clearRowBtn = new QPushButton("消除");
+        ui.eventTable->setItem(row, 3,
+            new QTableWidgetItem(downgraded ? "已降级" : "正常"));
+
+        // 降级复选框
+        QCheckBox* downgradeCb = new QCheckBox();
+        downgradeCb->setChecked(downgraded);
         QString rowId = e.id;
-        connect(clearRowBtn, &QPushButton::clicked, this, [this, rowId]() {
-            onClearRow(rowId);
+        connect(downgradeCb, &QCheckBox::clicked, this, [this, rowId](bool checked) {
+            if (checked) bridge_->setDowngrade(rowId, 4);
+            else         bridge_->removeDowngrade(rowId);
+            refresh();
         });
-        ui.eventTable->setCellWidget(row, 4, clearRowBtn);
+        ui.eventTable->setCellWidget(row, 4, downgradeCb);
+
+        // 屏蔽复选框
+        QCheckBox* shieldCb = new QCheckBox();
+        shieldCb->setChecked(e.shielded);
+        connect(shieldCb, &QCheckBox::clicked, this, [this, rowId](bool checked) {
+            if (checked) bridge_->setShield(rowId);
+            else         bridge_->clearShield(rowId);
+            refresh();
+        });
+        ui.eventTable->setCellWidget(row, 5, shieldCb);
     }
 
     ui.statusLabel->setText(QString("活跃 %1 个  屏蔽 %2 个")
