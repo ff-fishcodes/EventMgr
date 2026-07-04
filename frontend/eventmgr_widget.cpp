@@ -33,10 +33,20 @@ void EventMgrWidget::setupUI() {
     shieldLabel_->setStyleSheet("background:#f0f0f0; padding:4px;");
     layout->addWidget(shieldLabel_);
 
+    // Tab 切换时自动刷新目标页面
+    connect(tabs_, SIGNAL(currentChanged(int)), this, SLOT(onTabChanged(int)));
+
     statusTimer_ = new QTimer(this);
     connect(statusTimer_, SIGNAL(timeout()), this, SLOT(updateShieldStatus()));
     statusTimer_->start(1000);
     updateShieldStatus();
+}
+
+void EventMgrWidget::onTabChanged(int index) {
+    switch (index) {
+        case 0: eventListPage_->refresh();     break;
+        case 1: catalogPage_->loadCatalog();   break;
+    }
 }
 
 void EventMgrWidget::updateShieldStatus() {

@@ -24,6 +24,7 @@ public:
     BackendBridge* backend() const { return bridge_; }
 
 private slots:
+    void onTabChanged(int index);
     void updateShieldStatus();
 
 private:
