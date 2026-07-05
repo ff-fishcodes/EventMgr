@@ -34,10 +34,17 @@ public:
     void triggerAlarm(int protocolID, int frameID,
                       const std::string& alarmField, bool isActive);
 
+    // 系统事件入口（eventName 必须在 system_events.h 中已定义）
+    // 纯系统事件（如 disk_full）
+    void triggerSystemEvent(const std::string& eventName, bool isActive);
+    // 关联某下位机的系统事件（如 comm_lost:3）
+    void triggerSystemEvent(const std::string& eventName, int protocolID, bool isActive);
+
     // ========= 入口方法（可独立使用）=========
 
     void addEvent(const Event& event);
     void clearEvent(int protocolID, int frameID, const std::string& alarmField);
+    void clearEvent(const std::string& eventId);  // 按 EventId 直接清除（系统事件用）
 
     // ========= 查询方法 =========
 

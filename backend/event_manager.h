@@ -30,8 +30,10 @@ public:
     // 处理告警产生
     void processAddEvent(const Event& event);
 
-    // 处理告警消除
+    // 处理告警消除（设备事件）
     void processClearEvent(int protocolID, int frameID, const std::string& alarmField);
+    // 处理告警消除（按 EventId 精准匹配，系统事件用）
+    void processClearEvent(const EventId& eventId);
 
     // ========= 查询接口 =========
 

@@ -64,10 +64,28 @@ int main() {
         EventLevel::Emergency, "下位机1-温度过高");
     api.addEvent(ev);
 
+    // 系统事件（后端自行监测）
+    api.triggerSystemEvent("comm_lost", 3, true);      // 关联设备
+    api.triggerSystemEvent("disk_full", true);          // 纯系统事件
+
     // 查询
     std::vector<Event> active = api.getActiveEvents();
 }
 ```
+
+### 系统事件预定义列表
+
+系统事件名必须在 `backend/system_events.cpp` 中预定义，业务代码只能使用已注册的名称：
+
+| 事件名 | 描述 | 等级 |
+|--------|------|------|
+| `comm_lost` | 下位机通信断连 | Emergency |
+| `comm_restore` | 下位机通信恢复 | Info |
+| `disk_full` | 磁盘空间不足 | Serious |
+| `cpu_overload` | CPU 过载 | Serious |
+| `service_error` | 关键服务异常 | Emergency |
+
+具体内容由项目方按需增删。
 
 ## 注册联动动作
 

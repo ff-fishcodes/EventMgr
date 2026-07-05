@@ -80,6 +80,24 @@ void EventManager::processClearEvent(int protocolID, int frameID,
     activeEvents_.erase(it);
 }
 
+void EventManager::processClearEvent(const EventId& eventId) {
+    std::unordered_map<EventId, Event>::iterator it = activeEvents_.find(eventId);
+    if (it == activeEvents_.end()) {
+        return;
+    }
+
+    Event& event = it->second;
+    event.state = EventState::Cleared;
+
+    linkageEng_.executeCleared(event);
+
+    notifyFrontend(event, false);
+
+    writeLog(event, "消除");
+
+    activeEvents_.erase(it);
+}
+
 // ============================================================
 // 查询接口
 // ============================================================

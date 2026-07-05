@@ -2,7 +2,9 @@
 #include "event_manager.h"
 #include "config_manager.h"
 #include "stubs/alarm_catalog.h"
+#include "system_events.h"
 #include <sstream>
+#include <cstdlib>
 
 ExternalAPI::ExternalAPI(EventManager& eventMgr, ConfigManager& configMgr)
     : eventMgr_(eventMgr), configMgr_(configMgr) {}
@@ -61,9 +63,72 @@ void ExternalAPI::addEvent(const Event& event) {
     eventMgr_.processAddEvent(event);
 }
 
+void ExternalAPI::triggerSystemEvent(const std::string& eventName, bool isActive) {
+    const SystemEventDef* def = findSystemEventDef(eventName);
+    if (!def) return;  // 未在预定义列表中，忽略
+
+    if (!isActive) {
+        clearEvent(eventName);
+        return;
+    }
+
+    Event event;
+    event.source        = EventSource::System;
+    event.id            = eventName;
+    event.alarmField    = eventName;
+    event.description   = def->description;
+    event.originalLevel = def->level;
+    event.effectiveLevel = def->level;
+    event.state         = EventState::Active;
+
+    addEvent(event);
+}
+
+void ExternalAPI::triggerSystemEvent(const std::string& eventName,
+                                       int protocolID, bool isActive) {
+    const SystemEventDef* def = findSystemEventDef(eventName);
+    if (!def) return;
+
+    std::ostringstream idStr;
+    idStr << eventName << ":" << protocolID;
+    std::string fullId = idStr.str();
+
+    if (!isActive) {
+        clearEvent(fullId);
+        return;
+    }
+
+    Event event;
+    event.source        = EventSource::System;
+    event.id            = fullId;
+    event.protocolID    = protocolID;
+    event.alarmField    = eventName;
+    event.description   = "下位机" + std::to_string(protocolID) + "-" + def->description;
+    event.originalLevel = def->level;
+    event.effectiveLevel = def->level;
+    event.state         = EventState::Active;
+
+    addEvent(event);
+}
+
 void ExternalAPI::clearEvent(int protocolID, int frameID,
                               const std::string& alarmField) {
     eventMgr_.processClearEvent(protocolID, frameID, alarmField);
+}
+
+void ExternalAPI::clearEvent(const std::string& eventId) {
+    // 尝试按 Device 格式 "P-F-A" 解析（含两个 '-'）
+    size_t d1 = eventId.find('-');
+    size_t d2 = eventId.find('-', d1 + 1);
+    if (d1 != std::string::npos && d2 != std::string::npos) {
+        int pid = std::atoi(eventId.substr(0, d1).c_str());
+        int fid = std::atoi(eventId.substr(d1 + 1, d2 - d1 - 1).c_str());
+        std::string field = eventId.substr(d2 + 1);
+        eventMgr_.processClearEvent(pid, fid, field);
+    } else {
+        // System 事件（如 "comm_lost"、"comm_lost:3"），直接 ID 匹配
+        eventMgr_.processClearEvent(eventId);
+    }
 }
 
 std::vector<Event> ExternalAPI::getActiveEvents() const {
