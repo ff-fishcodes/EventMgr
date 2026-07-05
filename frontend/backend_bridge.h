@@ -32,6 +32,7 @@ public:
     struct EventEntry {
         QString id;
         QString description;
+        QString timestamp;
         int     level;
         bool    shielded;
     };

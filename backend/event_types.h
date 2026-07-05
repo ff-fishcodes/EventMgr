@@ -56,6 +56,7 @@ struct Event {
     EventLevel  originalLevel;    // 业务创建时指定的原始等级
     EventLevel  effectiveLevel;   // 经降级后的实际等级（addEvent 时计算）
     EventState  state;
+    std::string timestamp;          // 事件产生时间 "YYYY-MM-DD HH:MM:SS"
 
     // 兜底：如果引擎配置表和等级默认都没配，则用此列表
     std::vector<std::string> activeActions;

@@ -10,13 +10,15 @@ TARGET   = EventMgrFrontend
 
 FORMS += \
     event_list_widget.ui \
-    alarm_catalog_widget.ui
+    alarm_catalog_widget.ui \
+    alarm_log_widget.ui
 
 SOURCES += \
     main.cpp \
     eventmgr_widget.cpp \
     alarm_catalog_widget.cpp \
     event_list_widget.cpp \
+    alarm_log_widget.cpp \
     backend_bridge.cpp \
     ../backend/external_api.cpp \
     ../backend/event_manager.cpp \
@@ -33,6 +35,7 @@ HEADERS += \
     eventmgr_widget.h \
     alarm_catalog_widget.h \
     event_list_widget.h \
+    alarm_log_widget.h \
     backend_bridge.h
 
 INCLUDEPATH += .. ../backend
