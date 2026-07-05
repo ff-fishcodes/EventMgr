@@ -60,10 +60,11 @@ void EventListWidget::refresh() {
 
         ui.eventTable->setItem(row, 0, new QTableWidgetItem(e.id));
         ui.eventTable->setItem(row, 1, new QTableWidgetItem(e.description));
+        ui.eventTable->setItem(row, 2, new QTableWidgetItem(e.timestamp));
 
         QTableWidgetItem* levelItem = new QTableWidgetItem(levelText(e.level));
         levelItem->setForeground(levelColor(e.level));
-        ui.eventTable->setItem(row, 2, levelItem);
+        ui.eventTable->setItem(row, 3, levelItem);
 
         // 查当前降级/屏蔽状态（与报警配置页共享 ConfigManager）
         bool downgraded = false;
@@ -74,7 +75,7 @@ void EventListWidget::refresh() {
             }
         }
 
-        ui.eventTable->setItem(row, 3,
+        ui.eventTable->setItem(row, 4,
             new QTableWidgetItem(downgraded ? "已降级" : "正常"));
 
         // 降级复选框
@@ -86,7 +87,7 @@ void EventListWidget::refresh() {
             else         bridge_->removeDowngrade(rowId);
             refresh();
         });
-        ui.eventTable->setCellWidget(row, 4, downgradeCb);
+        ui.eventTable->setCellWidget(row, 5, downgradeCb);
 
         // 屏蔽复选框
         QCheckBox* shieldCb = new QCheckBox();
@@ -96,7 +97,7 @@ void EventListWidget::refresh() {
             else         bridge_->clearShield(rowId);
             refresh();
         });
-        ui.eventTable->setCellWidget(row, 5, shieldCb);
+        ui.eventTable->setCellWidget(row, 6, shieldCb);
     }
 
     ui.statusLabel->setText(QString("活跃 %1 个  屏蔽 %2 个")
