@@ -14,7 +14,12 @@ BackendBridge::~BackendBridge() {
 void BackendBridge::initialize() {
     configMgr_  = new ConfigManager();
     linkageEng_ = new LinkageEngine();
-    eventMgr_   = new EventManager(*configMgr_, *linkageEng_);
+
+    // 后端事件变化时 emit eventsChanged()，前端即时刷新
+    auto notifyCb = [this](const std::string&) {
+        emit eventsChanged();
+    };
+    eventMgr_   = new EventManager(*configMgr_, *linkageEng_, notifyCb);
     api_        = new ExternalAPI(*eventMgr_, *configMgr_);
 
     // 集中注册所有能力 + 配置事件联动

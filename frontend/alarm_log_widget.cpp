@@ -14,6 +14,10 @@ AlarmLogWidget::AlarmLogWidget(BackendBridge* bridge, QWidget* parent)
     : QWidget(parent), bridge_(bridge) {
     ui.setupUi(this);
 
+    // 后端事件变化即时刷新
+    connect(bridge_, SIGNAL(eventsChanged()), this, SLOT(refresh()));
+
+    // 1 秒定时器兜底
     refreshTimer_ = new QTimer(this);
     connect(refreshTimer_, SIGNAL(timeout()), this, SLOT(refresh()));
     refreshTimer_->start(1000);

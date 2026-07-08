@@ -36,6 +36,10 @@ void EventMgrWidget::setupUI() {
     // Tab 切换时自动刷新目标页面
     connect(tabs_, SIGNAL(currentChanged(int)), this, SLOT(onTabChanged(int)));
 
+    // 后端事件变化时即时刷新事件列表和屏蔽状态（不再等 1 秒定时器）
+    connect(bridge_, SIGNAL(eventsChanged()), eventListPage_, SLOT(refresh()));
+    connect(bridge_, SIGNAL(eventsChanged()), this, SLOT(updateShieldStatus()));
+
     statusTimer_ = new QTimer(this);
     connect(statusTimer_, SIGNAL(timeout()), this, SLOT(updateShieldStatus()));
     statusTimer_->start(1000);

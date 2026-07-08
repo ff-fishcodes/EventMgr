@@ -56,6 +56,10 @@ public:
     void clearShield(const QString& id);
     int  shieldCount() const;
 
+signals:
+    // 后端事件产生/消除时触发，前端控件连接此信号实现即时刷新
+    void eventsChanged();
+
 private:
     ConfigManager*  configMgr_;
     LinkageEngine*  linkageEng_;
