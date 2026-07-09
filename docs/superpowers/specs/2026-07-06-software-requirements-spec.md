@@ -1,9 +1,9 @@
 # 事件管理中心 — 需求规格说明文档
 
 > 文档编号：EventMgr-RS-001
-> 版本：v2.0
+> 版本：v2.1
 > 日期：2026-07-08
-> v1.0 → v2.0：需求条目细化为每项独立编号，新增前后端架构兼容、fallback 桥接、signal 推送等需求
+> v2.0 → v2.1：去代码化，使用自然语言描述需求行为
 
 ---
 
@@ -11,19 +11,15 @@
 
 ### 1.1 标识
 
-- **系统名称**：事件管理中心 (EventMgr)
+- **系统名称**：事件管理中心
 - **文档编号**：EventMgr-RS-001
 - **适用项目**：上位机事件管理子系统
 
 ### 1.2 概述
 
-事件管理中心是上位机系统的核心子系统，负责接收多台下位机的健康状态信息，处理后端自行监测的系统事件，生成告警、执行联动管控动作、实时呈现事件状态。
+事件管理中心接收下位机上报的健康状态信息，同时监测后端系统自身状态（如通信断连、磁盘空间等），将异常情况生成为统一格式的告警事件，按预定义规则执行联动管控动作，并将事件状态实时呈现给操作员。
 
-**核心能力**：告警产生与消除、事件联动、降级与屏蔽配置、系统事件支持、前端实时展示
-
-**运行环境**：飞腾 FT/2000 + 银河麒麟 V10，后端 C++11（不依赖 Qt），前端 Qt 5.15.2
-
-**规模假设**：下位机 5-20 台，状态帧总数 ≤ 100，上报频率 ≥ 1 Hz
+运行平台为飞腾 FT/2000 + 银河麒麟 V10。下位机数量 5-20 台，状态帧总数不超过 100，周期上报频率不低于每秒 1 次。
 
 ---
 
@@ -33,8 +29,7 @@
 |------|---------|------|
 | 1 | 设计方案 v5 | docs/superpowers/specs/2026-06-17-event-mgr-design.md |
 | 2 | 需求讨论记录 | docs/superpowers/specs/2026-06-17-requirement-discussion-record.md |
-| 3 | ActionRegistry 设计 | docs/superpowers/specs/2026-06-26-action-registry-design.md |
-| 4 | 软件设计说明 | docs/superpowers/specs/2026-07-06-software-design-spec.md |
+| 3 | 软件设计说明 | docs/superpowers/specs/2026-07-06-software-design-spec.md |
 
 ---
 
@@ -44,780 +39,352 @@
 
 ---
 
-#### 3.1.1 事件编号（RX_ALARM_EVENT_ID）
+#### 3.1.1 事件标识体系（RX_ALARM_EVENT_ID）
 
-##### 3.1.1.1 EventId 格式定义（RX_ALARM_EVENT_ID_01）
+##### RX_ALARM_EVENT_ID_01 — 事件编号格式
 
-系统应为每个告警事件生成全局唯一的标识符 EventId。
+每个告警事件必须拥有全局唯一的编号。
 
-**Device 事件**（下位机状态帧上报）：
+下位机状态帧上报的事件编号由"下位机标识"、"状态帧标识"、"报警字段名"三段组成，用连字符分隔。例如下位机 1 的第 3 号状态帧中温度过高字段对应的事件编号为 `1-3-temp_high`。
 
-格式：`"{protocolID}-{frameID}-{alarmField}"`
+后端自行监测的系统事件编号直接使用预定义的名称字符串。如果系统事件关联特定下位机（如"与下位机 3 通信断连"），则在名称后附加冒号和下位机标识。
 
-| 部分 | 类型 | 说明 | 示例 |
-|------|------|------|------|
-| protocolID | int | 下位机通信标识 | `1` |
-| frameID | int | 状态帧标识 | `3` |
-| alarmField | string | 报警字段名 | `temp_high` |
+##### RX_ALARM_EVENT_ID_02 — 重复上报忽略
 
-完整示例：`"1-3-temp_high"` 表示下位机 1、状态帧 3 中的温度过高告警。
+同一个事件编号在系统中只能有一个活跃实例。当已处于活跃状态的事件再次被上报时，系统必须对其忽略处理：不产生新事件、不重复触发联动、不重复通知前端、不重复写日志。
 
-**System 事件**（后端自行监测）：
+同理，请求消除一个不存在的事件时，系统静默忽略，不报错。
 
-| 类型 | 格式 | 示例 |
-|------|------|------|
-| 纯系统事件 | `"{eventName}"` | `"disk_full"` |
-| 关联设备系统事件 | `"{eventName}:{protocolID}"` | `"comm_lost:3"` |
+##### RX_ALARM_EVENT_ID_03 — 事件来源区分
 
-**唯一性约束**：EventId 在全局范围内唯一，同一时刻只有一个活跃实例。
+每个事件必须标注来源类型：是下位机状态帧上报，还是后端自行监测产生。
 
-##### 3.1.1.2 重复上报抑制（RX_ALARM_EVENT_ID_02）
+该信息用于前端可按来源筛选展示、系统对不同来源执行不同的校验逻辑。
 
-同一 EventId 的事件已处于活跃状态时，再次收到该 EventId 的产生请求必须**静默忽略**：
+##### RX_ALARM_EVENT_ID_04 — 事件等级
 
-- 不创建新 Event 对象
-- 不重复存入 activeEvents_
-- 不重复触发联动动作
-- 不重复发送前端通知
-- 不重复写日志
+事件等级分为四级，从高到低：
 
-消除不存在的事件也必须**静默忽略**：不报错、不抛异常、不影响系统运行。
+| 等级 | 含义 | 联动行为 |
+|------|------|---------|
+| 紧急 | 需要立即处理的故障 | 触发联动 |
+| 严重 | 需要尽快处理的故障 | 触发联动 |
+| 一般 | 需要关注的异常 | 触发联动 |
+| 提示 | 仅供参考的信息 | 不触发联动 |
 
-##### 3.1.1.3 事件来源区分（RX_ALARM_EVENT_ID_03）
+仅"提示"等级不触发联动动作，但日志和前端通知照常。
 
-Event 结构体必须包含 `EventSource` 枚举字段，区分两类来源：
+##### RX_ALARM_EVENT_ID_05 — 事件时间戳
 
-| 值 | 含义 | ID 格式 |
-|----|------|--------|
-| `Device` | 下位机状态帧上报 | `P-F-A` |
-| `System` | 后端自行监测 | `name` 或 `name:P` |
+每个事件必须记录其产生的时间，格式为"年-月-日 时:分:秒"（精确到秒），由系统在事件产生时自动记录，外部调用方不需要提供。时间使用系统本地时钟。
 
-该字段用于：
-- 前端可按来源过滤展示
-- 系统事件校验逻辑与 Device 事件不同
-- 后续扩展新来源时不影响现有格式
+##### RX_ALARM_EVENT_ID_06 — 事件携带的信息
 
-##### 3.1.1.4 事件等级定义（RX_ALARM_EVENT_ID_04）
+每个事件必须包含以下完整信息：
 
-| 枚举值 | 数值 | 含义 | 联动行为 |
-|--------|------|------|---------|
-| `Emergency` | 1 | 紧急故障 | 执行联动 |
-| `Serious` | 2 | 严重故障 | 执行联动 |
-| `General` | 3 | 一般故障 | 执行联动 |
-| `Info` | 4 | 提示 | **不执行联动** |
+- 事件编号
+- 来源类型（设备或系统）
+- 关联的下位机标识（系统事件可为空）
+- 关联的状态帧标识（系统事件为空）
+- 报警字段名或系统事件名
+- 报警描述文本（如"下位机 1-温度过高"）
+- 原始等级
+- 经降级配置修正后的实际生效等级
+- 当前状态（活跃或已消除）
+- 产生时间
 
-effectiveLevel 为 Info 时跳过联动，但日志和通知照常发送。
+##### RX_ALARM_EVENT_ID_07 — 报警目录条目
 
-##### 3.1.1.5 事件时间戳（RX_ALARM_EVENT_ID_05）
+报警目录中每一条目记录一个可被监测的报警类型，包含：
 
-Event 结构体必须包含 `timestamp` 字段，格式 `"YYYY-MM-DD HH:MM:SS"`（精确到秒）。
-
-- 在 `EventManager::processAddEvent` 中自动生成，调用方不需要传入
-- 使用系统本地时间 `std::localtime`
-- 前端事件列表和实时日志控件均展示此时间
-
-##### 3.1.1.6 Event 结构体完整性（RX_ALARM_EVENT_ID_06）
-
-Event 值对象必须包含以下全部字段：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| id | EventId | 是 | 唯一标识 |
-| source | EventSource | 是 | 来源（默认 Device） |
-| protocolID | int | 是 | 下位机标识（System 可为 0） |
-| frameID | int | 是 | 状态帧标识（System 为 0） |
-| alarmField | string | 是 | 报警字段名（System 同 eventName） |
-| description | string | 是 | 报警描述文本 |
-| originalLevel | EventLevel | 是 | 原始等级（1-4） |
-| effectiveLevel | EventLevel | 是 | 经降级计算后的实际等级 |
-| state | EventState | 是 | Active / Cleared |
-| timestamp | string | 是 | 产生时间 |
-| activeActions | vector\<string\> | 否 | 兜底联动名称列表 |
-| clearActions | vector\<string\> | 否 | 兜底消除联动名称列表 |
-
-##### 3.1.1.7 AlarmDef 报警定义（RX_ALARM_EVENT_ID_07）
-
-AlarmDef 结构体表示报警目录中的一条定义：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | EventId | 事件编号 |
-| description | string | 报警描述 |
-| originalLevel | EventLevel | 原始等级 |
-| downgraded | bool | 是否已降级 |
-| downgradeTo | EventLevel | 降级目标等级 |
-| shielded | bool | 是否已屏蔽 |
+- 事件编号
+- 报警描述
+- 原始等级
+- 该条目当前是否被降级、降级到了哪个等级
+- 该条目当前是否被屏蔽
 
 ---
 
-#### 3.1.2 架构兼容性（RX_ARCH_COMPAT）
+#### 3.1.2 部署架构兼容（RX_ARCH_COMPAT）
 
-##### 3.1.2.1 前后端分离架构（RX_ARCH_COMPAT_01）
+##### RX_ARCH_COMPAT_01 — 前后端分离部署
 
-系统必须支持前后端分离部署：
+系统必须支持前后端运行在不同进程中。后端不依赖任何 Qt 库，前端使用 Qt。前后端通过消息通信（如 Socket），后端在事件变化时主动推送通知给前端。
 
-- 后端纯 C++11，**不依赖 Qt 库**
-- 前端 Qt 5.15.2
-- 前后端通过 JSON 消息通信（Socket 或本地管道）
-- EventManager 通过 NotifyCallback 推送事件变更 JSON 到前端
-- 桩模块（SocketServer/LogWriter/CmdSender/BuzzerControl）在集成时替换为真实实现
+系统中涉及外部依赖的功能（日志写入、指令发送、通信推送、蜂鸣器控制、报警目录获取）应通过可替换的接口模块实现，替换时仅需改动实现代码，接口不变。
 
-##### 3.1.2.2 前后端一体架构（RX_ARCH_COMPAT_02）
+##### RX_ARCH_COMPAT_02 — 前后端一体部署
 
-系统必须**同时**支持前后端不分离的本机部署：
+系统必须同时支持前后端运行在同一进程中。前端通过桥接层直接调用后端接口，两条铁路之间不经过网络传输，后端核心代码不做任何修改。
 
-- 后端代码**不做任何修改**
-- 通过 BackendBridge（QObject）直接持有后端实例
-- EventManager 的 NotifyCallback 注入为 emit Qt signal 的 Lambda
-- 单进程内前后端零拷贝通信
+##### RX_ARCH_COMPAT_03 — 架构切换
 
-##### 3.1.2.3 架构切换（RX_ARCH_COMPAT_03）
-
-一体模式与分离模式的切换**不应要求修改后端核心代码**：
-
-- 切换点仅在 EventManager 构造时注入的 NotifyCallback
-- 一体模式：回调 → emit eventsChanged() signal
-- 分离模式：回调 → SocketServer::notifyFrontend(json)
-- 不传回调时默认走 SocketServer（向后兼容）
-
-##### 3.1.2.4 桩模块替换（RX_ARCH_COMPAT_04）
-
-当前桩模块在集成时需替换为真实实现，接口不变：
-
-| 桩模块 | 接口 | 集成时对接 |
-|--------|------|-----------|
-| SocketServer | `notifyFrontend(json)` | 项目实际 Socket 通信层 |
-| LogWriter | `write(msg)` | 项目日志系统 |
-| CmdSender | `send(protocolID, target, param)` | 下位机指令发送模块 |
-| BuzzerControl | `play(target, param)` | 蜂鸣器硬件 |
-| AlarmCatalog | `getAllDefinitions()` | 项目配置模块 |
-
-替换仅需修改 .cpp 实现，头文件接口不变。
+一体模式与分离模式的切换不应修改后端核心逻辑。切换仅涉及通知回调的注入方式：一体模式下回调内直接触发前端刷新，分离模式下回调通过通信层推送消息。
 
 ---
 
 #### 3.1.3 告警产生（RX_ALARM_GENERATE）
 
-##### 3.1.3.1 triggerAlarm 接口（RX_ALARM_GENERATE_01）
+##### RX_ALARM_GENERATE_01 — 通过设备标识触发告警
 
-`triggerAlarm(protocolID, frameID, alarmField, isActive)` 是 observe 组件的对接入口：
+系统应提供简化的告警触发入口：调用方只需给出下位机标识、状态帧标识、报警字段名，以及是产生还是消除，系统自动查找报警目录获取该事件的等级和描述信息。
 
-- `isActive=true`：自动查 AlarmCatalog 获取等级和描述 → createAlarm → addEvent
-- `isActive=false`：调用 clearEvent 消除
-- AlarmCatalog 中找不到匹配定义时，使用默认值（Info 等级 + alarmField 作描述）兜底
-- 调用方不需要知道等级和描述，只传设备标识 + 报警字段
+如果在报警目录中找不到对应定义，系统使用默认的提示等级和字段名作为描述完成事件创建，不中断处理流程。
 
-##### 3.1.3.2 createAlarm 工厂（RX_ALARM_GENERATE_02）
+##### RX_ALARM_GENERATE_02 — 手动创建和提交事件
 
-`createAlarm(protocolID, frameID, alarmField, level, description)` 创建 Device 事件值对象：
+系统应提供手动创建事件的功能：调用方指定下位机标识、状态帧标识、报警字段、等级和描述，系统生成完整的事件对象。
 
-- 自动生成 EventId = `"{protocolID}-{frameID}-{alarmField}"`
-- 设置 source = Device
-- effectiveLevel 初始 = originalLevel（后续 addEvent 时由 ConfigManager 修正）
-- 不触发任何业务逻辑（纯工厂方法）
+系统应提供事件提交入口：调用方将创建好的事件对象提交到系统管线，系统完成后续所有处理。
 
-##### 3.1.3.3 addEvent 提交（RX_ALARM_GENERATE_03）
+##### RX_ALARM_GENERATE_03 — 事件产生处理流程
 
-`addEvent(event)` 提交事件到 EventManager 管线：
+当收到事件产生请求时，系统必须严格按以下顺序处理：
 
-- 调 `EventManager::processAddEvent`，完成查重、降级计算、存储、联动、通知、日志全部流程
-- 入参为 Event 值对象，接口不随 Event 字段变更而改动
+1. 查重：若该编号的事件已在活跃列表中，直接忽略
+2. 计算实际等级：检查是否存在降级配置，若有则使用降级后的等级
+3. 记录当前时间
+4. 将事件存入活跃列表
+5. 若实际等级不是"提示"，执行联动动作
+6. 若该事件未被标记为屏蔽，推送通知给前端
+7. 写日志
 
-##### 3.1.3.4 processAddEvent 流程（RX_ALARM_GENERATE_04）
+屏蔽只影响前端通知（步骤 6），不影响联动（步骤 5）和日志（步骤 7）。重复事件在步骤 1 被拦截，不执行后续步骤。
 
-EventManager 处理流程必须严格按以下顺序：
+##### RX_ALARM_GENERATE_04 — 日志
 
-```
-1. 查重：若 activeEvents_.find(event.id) 已存在，直接返回（静默忽略）
-2. 计算有效等级：effectiveLevel = configMgr_.getEffectiveLevel(id, originalLevel)
-3. 生成时间戳：strftime("%Y-%m-%d %H:%M:%S")
-4. 存储：activeEvents_[id] = event
-5. 联动：若 effectiveLevel ≠ Info，调用 linkageEng_.executeActive(event)
-6. 通知：若 configMgr_.isShielded(id) == false，调用 notifyFrontend(event, true)
-7. 日志：writeLog(event, "发生")
-```
-
-**关键约束**：
-- 屏蔽只影响前端通知（步骤 6），不影响联动（步骤 5）和日志（步骤 7）
-- 降级影响联动决策（effectiveLevel 参与步骤 5 判断）
-- 重复事件在步骤 1 返回，不执行后续任何步骤
-
-##### 3.1.3.5 日志写入（RX_ALARM_GENERATE_05）
-
-事件产生时必须写入日志，格式为：
-```
-"下位机{protocolID}-{description}-发生"
-```
-日志通过 LogWriter 桩写入，集成时替换为项目实际日志系统。
+事件产生和消除时都必须写日志。日志内容应包含下位机标识、事件描述、动作类型（"发生"或"消除"）。
 
 ---
 
 #### 3.1.4 告警消除（RX_ALARM_CLEAR）
 
-##### 3.1.4.1 clearEvent 三字段消除（RX_ALARM_CLEAR_01）
+##### RX_ALARM_CLEAR_01 — 按设备标识消除
 
-`clearEvent(protocolID, frameID, alarmField)` 按 Device 事件三字段消除：
+调用方给出下位机标识、状态帧标识和报警字段名，系统自动构造事件编号，查找并消除对应事件。
 
-- 内部构造 EventId = `"{protocolID}-{frameID}-{alarmField}"`
-- 调 `EventManager::processClearEvent(int, int, string)`
+##### RX_ALARM_CLEAR_02 — 按事件编号直接消除
 
-##### 3.1.4.2 clearEvent 按 ID 消除（RX_ALARM_CLEAR_02）
+系统应支持直接给出完整事件编号来消除事件。系统自动判断编号是设备事件格式还是系统事件格式，采用对应的查找方式。
 
-`clearEvent(eventId)` 按 EventId 直接消除：
+##### RX_ALARM_CLEAR_03 — 消除处理流程
 
-- 含两个 '-' 时按 Device 格式解析：提取 pid/fid/field → processClearEvent(pid, fid, field)
-- 否则按 System 事件处理：processClearEvent(eventId) 精准 ID 匹配
-- 该重载使得 `triggerSystemEvent(name, false)` 等消除路径无需解析 ID 格式
+消除请求的处理顺序：
 
-##### 3.1.4.3 processClearEvent 流程（RX_ALARM_CLEAR_03）
-
-消除流程严格按以下顺序：
-
-```
-1. 查找：activeEvents_.find(id)，不存在则直接返回（静默忽略）
-2. 标记：event.state = Cleared
-3. 消除联动：linkageEng_.executeCleared(event)
-4. 通知：notifyFrontend(event, false)  // alarm_cleared
-5. 日志：writeLog(event, "消除")
-6. 移除：activeEvents_.erase(id)
-```
-
-##### 3.1.4.4 消除日志（RX_ALARM_CLEAR_04）
-
-消除日志格式为：
-```
-"下位机{protocolID}-{description}-消除"
-```
+1. 在活跃列表中查找事件，不存在则忽略
+2. 标记事件为"已消除"
+3. 执行消除侧的联动动作
+4. 推送消除通知给前端
+5. 写消除日志
+6. 从活跃列表中移除
 
 ---
 
 #### 3.1.5 事件联动（RX_EVENT_LINKAGE）
 
-##### 3.1.5.1 动作注册（RX_EVENT_LINKAGE_01）
+##### RX_EVENT_LINKAGE_01 — 注册联动能力
 
-`LinkageEngine::registerAction(name, callback)` 注册一个命名的可执行动作：
+系统应在启动时完成所有联动能力的注册。每个联动能力有一个名称和对应的执行操作，操作中封装了所需的参数（目标设备、指令等）。
 
-- name 为任意字符串（如 `"cooler_stop"`、`"boiler_stop"`）
-- callback 为 `std::function<void()>` Lambda，闭包内捕获所需的参数（目标设备、指令等）
-- 同名注册后者覆盖前者
-- 仅在系统启动时调用，运行时不再注册
+所有联动能力的注册集中在同一处完成，不散落在业务代码各处。
 
-##### 3.1.5.2 事件联动配置（RX_EVENT_LINKAGE_02）
+##### RX_EVENT_LINKAGE_02 — 为具体事件配置联动
 
-`LinkageEngine::configureEvent(eventId, activeNames, clearNames)` 为指定 EventId 绑定动作列表：
+可以为每个事件编号单独配置联动：指定该事件产生时执行哪些能力，消除时执行哪些能力。产生和消除的配置相互独立，产生侧配置了"锁操作面板"不自动意味着消除时"解锁操作面板"。
 
-- activeNames：事件产生时执行的动作名称列表
-- clearNames：事件消除时执行的动作名称列表
-- clearNames 不自动从 activeNames 推导（不自动镜像），UI 锁控由宿主处理
-- 每个名称必须在 actionTable_ 中已注册，否则该名称被跳过（不报错）
+##### RX_EVENT_LINKAGE_03 — 按等级配置默认联动
 
-##### 3.1.5.3 等级默认联动（RX_EVENT_LINKAGE_03）
+可以为每个等级设置默认联动能力。当该等级的事件产生时，自动附带这些能力。
 
-`LinkageEngine::setLevelDefault(level, names)` 为指定等级设置默认联动动作：
+##### RX_EVENT_LINKAGE_04 — 联动优先级
 
-- 所有该等级的事件产生时自动附加这些动作
-- 与事件级配置**合并执行**（非覆盖）
+事件产生时，实际执行的联动能力按以下优先级确定：先取事件单独配置的能力列表，再附加上该等级默认配置的能力。两者合并执行。如果均为空，则使用事件自带的兜底列表。
 
-##### 3.1.5.4 联动优先级合并规则（RX_EVENT_LINKAGE_04）
+事件消除时，仅使用事件单独配置的消除能力列表。
 
-运行时 resolveActiveNames 按以下优先级合并：
+##### RX_EVENT_LINKAGE_05 — 提示等级不联动
 
-| 优先级 | 来源 | 配置方式 |
-|--------|------|---------|
-| 1（最高） | 事件级 | configureEvent 设置的 activeNames |
-| 2 | 等级级 | setLevelDefault 设置的默认动作 |
-| 3（最低） | 实例级 | Event 对象的 activeActions 字段（兜底） |
+当事件的实际等级为"提示"时，不执行任何联动动作。
 
-合并方式：事件级 + 等级级 → 追加拼接。若合并结果为空，fallback 到实例级。
+##### RX_EVENT_LINKAGE_06 — 联动通知桥接
 
-resolveClearNames 仅使用事件级 clearNames，不合并等级默认，不 fallback 到实例级。
+系统应在每次执行联动后，将"哪个事件、是产生还是消除"通知给外部。这是一个开放接口，不做具体处理，留给上层使用者自行决定如何响应。
 
-##### 3.1.5.5 Info 等级跳过联动（RX_EVENT_LINKAGE_05）
+在上层中，这个通知被转换为界面上可连接的信号。使用者按事件编号判断需要锁或解锁哪些界面控件。后端不需要知道界面有哪些控件。
 
-`executeActive` 和 `executeCleared` 在 `event.effectiveLevel == EventLevel::Info` 时必须直接返回，不执行任何动作，也不调用 fallback。
+##### RX_EVENT_LINKAGE_07 — 仅注册后端能力
 
-##### 3.1.5.6 Fallback 桥接（RX_EVENT_LINKAGE_06）
-
-LinkageEngine 必须支持 `setFallback(callback)` 注入回调，签名：
-```cpp
-void callback(const std::string& eventId, bool isActive)
-```
-
-- executeActive 末尾调用：`fallback_(event.id, true)`
-- executeCleared 末尾调用：`fallback_(event.id, false)`
-- Fallback 在 **executeNames 执行之后**调用，不影响已注册动作的执行
-- 若未设置 fallback（callback 为空），不调用
-
-##### 3.1.5.7 BackendBridge 桥接信号（RX_EVENT_LINKAGE_07）
-
-BackendBridge 必须将 fallback 转换为 Qt 信号：
-
-```cpp
-// 信号声明
-void linkageAction(const QString& eventId, bool isActive);
-```
-
-- BackendBridge::initialize() 中注入 setFallback Lambda
-- Lambda 内部 `emit linkageAction(eventId, isActive)`
-- 宿主项目 connect 此信号，按 eventId 自行处理 UI 锁控（lock/unlock）
-
-##### 3.1.5.8 ActionRegistry 集中注册（RX_EVENT_LINKAGE_08）
-
-所有联动动作注册和事件联动配置必须在 `ActionRegistry::setup(LinkageEngine&)` 中集中完成：
-
-- 系统启动时一次性调用
-- 注册和配置不散落在业务代码中
-- 仅注册后端管控动作（CmdSender/Buzzer），不注册 UI 动作
-- UI 锁控通过 fallback 桥接到宿主项目
-
-##### 3.1.5.9 联动引擎存储结构（RX_EVENT_LINKAGE_09）
-
-LinkageEngine 内部使用以下数据结构：
-
-| 存储 | Key | Value | 说明 |
-|------|-----|-------|------|
-| actionTable_ | string（动作名） | ActionCallback | O(1) 查找回调 |
-| eventConfig_ | EventId | pair<activeNames, clearNames> | 事件级配置 |
-| levelDefaults_ | int（等级值） | vector\<string\> | 等级默认动作 |
-| fallback_ | — | FallbackCallback | 桥接回调（可空） |
+联动注册层只注册后端管控能力（向下位机发送指令、触发蜂鸣器等），不注册界面操作能力。界面锁控通过上一条的桥接通知由上层自行处理。
 
 ---
 
 #### 3.1.6 告警降级（RX_ALARM_DOWNGRADE）
 
-##### 3.1.6.1 降级设置（RX_ALARM_DOWNGRADE_01）
+##### RX_ALARM_DOWNGRADE_01 — 设置降级
 
-`ConfigManager::setDowngrade(eventId, newLevel)` 将指定事件降级：
+操作员可以将某个事件编号的报警等级降低为更低等级。降级按事件编号精确设置，设置后立即生效——后续新事件产生时自动以降级后的等级处理。"立即生效"意味着即使事件当前已处于活跃状态，降级设置也会在界面上立即体现。
 
-- eventId 精确匹配
-- newLevel 为降级后的等级（1-4）
-- 设置后立即生效，不依赖事件是否已产生
-- 重复设置会覆盖之前的降级配置
+##### RX_ALARM_DOWNGRADE_02 — 取消降级
 
-##### 3.1.6.2 降级取消（RX_ALARM_DOWNGRADE_02）
+操作员可以取消降级，事件恢复其原始等级。
 
-`ConfigManager::removeDowngrade(eventId)` 取消降级配置：
+##### RX_ALARM_DOWNGRADE_03 — 降级影响范围
 
-- 从 downgradeMap_ 中移除
-- 取消后事件恢复 originalLevel
-- 对已存在的活跃事件，前端下次 refresh 时自动反映恢复后的等级
+降级只影响等级相关的决策（联动执行与否、前端颜色显示），不影响日志写入和前端通知推送。
 
-##### 3.1.6.3 有效等级查询（RX_ALARM_DOWNGRADE_03）
+##### RX_ALARM_DOWNGRADE_04 — 降级不持久化
 
-`ConfigManager::getEffectiveLevel(eventId, originalLevel)`：
-
-- 查 downgradeMap_，若存在返回降级后等级
-- 不存在返回 originalLevel
-- 该查询在 processAddEvent 中调用，确保 effectiveLevel 正确
-
-##### 3.1.6.4 降级影响范围（RX_ALARM_DOWNGRADE_04）
-
-降级仅改变 effectiveLevel：
-
-| 受影响 | 不受影响 |
-|--------|---------|
-| 联动决策（Info 时跳过联动） | 日志写入（始终执行） |
-| 前端等级显示 | 前端通知（始终推送，除非被屏蔽） |
-
-##### 3.1.6.5 降级配置不持久化（RX_ALARM_DOWNGRADE_05）
-
-降级配置存储在内存中（downgradeMap_），软件重启后清空恢复原始状态。操作员必须在每次启动后手动重新设置降级。此设计是刻意的安全策略。
+降级配置仅在内存中有效。软件重启后所有降级配置清空，操作员必须手动重新设置。这是安全策略：降级是一种临时的、有意识的豁免操作，不应在无人知晓的情况下跨会话保持。
 
 ---
 
 #### 3.1.7 报警屏蔽（RX_ALARM_SHIELD）
 
-##### 3.1.7.1 屏蔽设置（RX_ALARM_SHIELD_01）
+##### RX_ALARM_SHIELD_01 — 设置屏蔽
 
-`ConfigManager::setShield(eventId)` 将指定事件标记为屏蔽：
+操作员可以设置某个事件编号为屏蔽状态。被屏蔽的事件在产生时不推送前端通知（界面上看不到），但联动动作和日志写入照常执行。
 
-- eventId 精确匹配
-- 设置后立即生效
-- 被屏蔽的事件的 processAddEvent 流程中，步骤 6（通知前端）被跳过
+##### RX_ALARM_SHIELD_02 — 取消屏蔽
 
-##### 3.1.7.2 屏蔽取消（RX_ALARM_SHIELD_02）
+操作员可以取消屏蔽，恢复前端通知。
 
-`ConfigManager::clearShield(eventId)` 取消屏蔽：
+##### RX_ALARM_SHIELD_03 — 屏蔽计数
 
-- 从 shieldSet_ 中移除
-- 后续事件产生时恢复前端通知
+系统应随时提供当前被屏蔽的事件数量，供前端界面持续展示。
 
-##### 3.1.7.3 屏蔽查询（RX_ALARM_SHIELD_03）
+##### RX_ALARM_SHIELD_04 — 屏蔽不持久化
 
-`ConfigManager::isShielded(eventId) → bool`：查询指定事件是否被屏蔽。
-
-##### 3.1.7.4 屏蔽计数（RX_ALARM_SHIELD_04）
-
-`ConfigManager::getShieldCount() → int`：返回 shieldSet_.size()，供前端状态栏持续显示。
-
-##### 3.1.7.5 屏蔽影响范围（RX_ALARM_SHIELD_05）
-
-屏蔽仅影响前端通知：
-
-| 受影响 | 不受影响 |
-|--------|---------|
-| 前端通知（alarm_active 不推送） | 联动动作（正常执行） |
-| 前端列表可见性 | 日志写入（正常写入） |
-
-##### 3.1.7.6 屏蔽配置不持久化（RX_ALARM_SHIELD_06）
-
-与降级相同，屏蔽配置存储在内存中，软件重启后清空。操作员必须在每次启动后手动重新设置屏蔽。
+与降级相同，屏蔽配置仅在内存中有效，软件重启后清空。操作员必须手动重新设置。
 
 ---
 
 #### 3.1.8 系统事件（RX_SYSTEM_EVENT）
 
-##### 3.1.8.1 系统事件预定义列表（RX_SYSTEM_EVENT_01）
+##### RX_ALARM_SHIELD_05 — 系统事件预定义
 
-系统事件名必须在 `backend/system_events.cpp` 的 `kSystemEvents` 列表中集中预定义：
+系统事件名称必须在一个集中列表中预先定义。每个系统事件条目包含：事件名称、描述文本、等级。该列表由项目方按需增删。
 
-- 每个条目包含 {name, description, level}
-- `getSystemEventDefs()` 返回完整列表
-- `findSystemEventDef(name)` 按名称查找，未找到返回 NULL
+外部代码在触发系统事件时只能使用列表中已注册的名称，使用未定义名称时系统忽略并输出警告。
 
-列表内容由项目方自行增删，当前示例：
-```cpp
-{"comm_lost",    "下位机通信断连",  EventLevel::Emergency},
-{"comm_restore", "下位机通信恢复",  EventLevel::Info},
-{"disk_full",    "磁盘空间不足",    EventLevel::Serious},
-{"cpu_overload", "CPU 过载",        EventLevel::Serious},
-{"service_error","关键服务异常",    EventLevel::Emergency},
-```
+##### RX_ALARM_SHIELD_06 — 触发纯系统事件
 
-##### 3.1.8.2 triggerSystemEvent 纯系统事件（RX_SYSTEM_EVENT_02）
+纯系统事件（如磁盘空间不足）不与特定下位机关联。触发时给出事件名称即可，系统自动查找预定义列表获取等级和描述。
 
-`triggerSystemEvent(eventName, isActive)` 触发不与特定下位机关联的系统事件：
+##### RX_ALARM_SHIELD_07 — 触发关联设备的系统事件
 
-- 校验 eventName 是否在预定义列表中，不在则打印警告并忽略
-- isActive=true：构造 Event {source=System, id=eventName, ...} → addEvent
-- isActive=false：clearEvent(eventName)
-- description/level 从预定义列表获取
+关联设备的系统事件（如与下位机 3 通信断连）需要同时给出事件名称和下位机标识。系统将二者组合为事件编号，描述自动拼接为"下位机 X-事件描述"。
 
-##### 3.1.8.3 triggerSystemEvent 关联设备（RX_SYSTEM_EVENT_03）
+##### RX_ALARM_SHIELD_08 — 系统事件与联动
 
-`triggerSystemEvent(eventName, protocolID, isActive)` 触发与某下位机关联的系统事件：
-
-- EventId = `"{eventName}:{protocolID}"`（如 `"comm_lost:3"`）
-- description = `"下位机{protocolID}-{预定义描述}"`
-- 其他流程同上
-
-##### 3.1.8.4 系统事件与联动（RX_SYSTEM_EVENT_04）
-
-系统事件与 Device 事件共享同一联动管线：
-
-- 在 ActionRegistry 中可通过 `configureEvent("comm_lost", {...}, {...})` 为系统事件配置联动
-- 也可通过 `setLevelDefault` 让系统事件按等级触发默认联动
-- 系统事件的 fallback 回调同样在 executeActive/executeCleared 末尾触发
+系统事件与设备事件共用同一套联动管线。可以为系统事件单独配置联动能力，也可以通过等级默认让系统事件按等级触发默认联动。
 
 ---
 
-#### 3.1.9 前端 UI（RX_FRONTEND_UI）
+#### 3.1.9 前端界面（RX_FRONTEND_UI）
 
-##### 3.1.9.1 活跃事件列表控件（RX_FRONTEND_UI_01）
+##### RX_FRONTEND_UI_01 — 活跃事件列表
 
-EventListWidget 提供活跃事件实时列表，要求：
+前端应提供一个实时列表页，展示所有当前活跃的事件。表格包含以下列：事件编号、描述、产生时间、等级、状态（正常或已降级）、降级复选框、屏蔽复选框。
 
-| 项目 | 规格 |
-|------|------|
-| 列定义 | 编号 | 描述 | 时间 | 等级 | 状态 | 降级 | 屏蔽（7 列） |
-| 时间格式 | `YYYY-MM-DD HH:MM:SS` |
-| 等级着色 | 紧急=红色、严重=橙色、一般=黄色、提示=蓝色 |
-| 降级列 | QCheckBox，勾选即时调用 bridge_->setDowngrade()，取消勾选调用 removeDowngrade() |
-| 屏蔽列 | QCheckBox，勾选即时调用 bridge_->setShield()，取消勾选调用 clearShield() |
-| 编辑 | QAbstractItemView::NoEditTriggers（只读） |
-| 选择 | QAbstractItemView::SelectRows（整行选中） |
+等级用颜色区分：紧急=红色、严重=橙色、一般=黄色、提示=蓝色。
 
-##### 3.1.9.2 报警配置页控件（RX_FRONTEND_UI_02）
+降级和屏蔽列使用复选框，操作员勾选或取消勾选时配置立即生效。
 
-AlarmCatalogWidget 提供报警定义配置表：
+##### RX_FRONTEND_UI_02 — 报警配置页
 
-| 项目 | 规格 |
-|------|------|
-| 列定义 | 编号 | 描述 | 原始等级 | 降级 | 屏蔽（5 列） |
-| 降级/屏蔽列 | QCheckBox，用户勾选后需点击"应用配置"按钮批量写入 |
-| 按钮 | "应用配置"（遍历所有行批量调 setDowngrade/setShield/removeDowngrade/clearShield）、"刷新"（重载目录） |
-| 与事件列表同步 | 两页共享同一 ConfigManager，切换 Tab 时自动刷新 |
+前端应提供报警配置页，展示报警目录中所有条目，每行包含：事件编号、描述、原始等级、降级复选框、屏蔽复选框。操作员勾选降级或屏蔽后需点击"应用"按钮统一提交。
 
-##### 3.1.9.3 实时报警日志控件（RX_FRONTEND_UI_03）
+该页面与事件列表页共享同一份配置，切换页面时自动刷新为最新状态。
 
-AlarmLogWidget 提供可嵌入主界面的实时报警日志：
+##### RX_FRONTEND_UI_03 — 实时报警日志
 
-| 项目 | 规格 |
-|------|------|
-| 列定义 | 时间 | 报警内容（2 列） |
-| 描述着色 | 按等级着色（同事件列表） |
-| 独立性 | 不依赖 EventMgrWidget，可嵌入任意父级 QWidget |
-| 数据来源 | bridge_->getActiveEvents() |
+前端应提供一个独立的实时日志控件，使用两列展示当前活跃事件的时间和描述。该控件可嵌入主界面任意位置，不依赖于其他界面组件。
 
-##### 3.1.9.4 主容器控件（RX_FRONTEND_UI_04）
+##### RX_FRONTEND_UI_04 — 主容器控件
 
-EventMgrWidget 为前端主容器：
+前端应提供一个主容器，内含事件列表和报警配置两个标签页，底部显示当前屏蔽数量。主容器可嵌入任意父级窗口。
 
-| 项目 | 规格 |
-|------|------|
-| 基类 | QWidget（可嵌入任意父级窗口） |
-| 内含 | QTabWidget（事件列表 + 报警配置）+ 底部 QLabel 屏蔽状态栏 |
-| Tab 切换 | 监听 QTabWidget::currentChanged，切换时自动刷新目标页面 |
-| 状态栏 | 每 1 秒更新 `"当前屏蔽: N 个报警"` |
+切换标签页时自动刷新目标页面的数据。
 
-##### 3.1.9.5 Signal 推送刷新（RX_FRONTEND_UI_05）
+##### RX_FRONTEND_UI_05 — 后端事件主动推送
 
-BackendBridge 必须提供 `eventsChanged()` 信号：
+当后端有新事件产生或事件消除时，应通过桥接层主动推送通知。前端接收到通知后立即刷新列表和日志控件，延迟应在毫秒级。
 
-- EventManager 的 NotifyCallback 注入为 emit eventsChanged() 的 Lambda
-- 事件产生或消除后瞬间触发（< 1ms）
-- EventListWidget 和 AlarmLogWidget 连接此信号即时刷新
-- 降低刷新延迟从"最多 1 秒"到"几乎实时"
+##### RX_FRONTEND_UI_06 — 定时刷新兜底
 
-##### 3.1.9.6 Timer 兜底刷新（RX_FRONTEND_UI_06）
+前端同时保留每秒一次的定时轮询，作为主动推送的兜底机制，防止信号丢失或异常导致界面停滞。
 
-1 秒 QTimer 周期刷新保留作为兜底：
+##### RX_FRONTEND_UI_07 — 事件变化通知格式
 
-- 防止 signal 丢失或异常导致界面停滞
-- 两个刷新机制共存，互不冲突
-- 屏蔽状态栏的更新也通过 1 秒定时器保障
+后端推送的事件变化通知应包含：事件类型（产生或消除）、下位机标识、状态帧标识、报警字段名、事件描述和等级。
 
-##### 3.1.9.7 模拟报警功能（RX_FRONTEND_UI_07）
+##### RX_FRONTEND_UI_08 — 被屏蔽事件不显示
 
-EventListWidget 底部提供 QComboBox（选择报警定义）+ QPushButton "模拟报警"：
-
-- 点击后调 bridge_->triggerAlarm(id, true)
-- 用于开发调试阶段模拟事件产生
-- 仅产生不自动消除
-
-##### 3.1.9.8 Down/upcast 控件嵌入性（RX_FRONTEND_UI_08）
-
-所有前端控件均为 QWidget 子类，可嵌入任意父级：
-
-- EventMgrWidget：含有完整的事件管理两个 Tab 页，一行 `new EventMgrWidget(parent)` 即可嵌入
-- AlarmLogWidget：独立的实时报警日志，一行 `new AlarmLogWidget(bridge, parent)` 即可嵌入
-
-##### 3.1.9.9 BackendBridge 桥接层（RX_FRONTEND_UI_09）
-
-BackendBridge 为 QObject，是前端与后端的唯一桥接点：
-
-| 职责 | 说明 |
-|------|------|
-| 持有后端实例 | ConfigManager*, LinkageEngine*, EventManager*, ExternalAPI* |
-| 初始化 | `initialize()` 创建后端实例 + 调用 ActionRegistry::setup() + 注入 fallback |
-| 信号 | eventsChanged()、linkageAction(eventId, isActive) |
-| 数据转换 | 后端 std::string → Qt QString，std::vector → QVector |
-
----
-
-#### 3.1.10 前端通知机制（RX_FRONTEND_NOTIFY）
-
-##### 3.1.10.1 NotifyCallback 注入（RX_FRONTEND_NOTIFY_01）
-
-EventManager 构造函数接受可选的 `NotifyCallback`：
-
-- 签名：`void(const std::string& json)`
-- 一体模式：BackendBridge 注入 emit eventsChanged() 的 Lambda
-- 分离模式：注入 SocketServer::notifyFrontend 的函数指针
-- 不传回调时默认走 SocketServer（向后兼容）
-
-##### 3.1.10.2 前端通知 JSON 格式（RX_FRONTEND_NOTIFY_02）
-
-Notyfi Frontend 发送的 JSON 消息格式：
-
-**事件产生**：
-```json
-{
-    "type": "alarm_active",
-    "protocolID": 1,
-    "frameID": 3,
-    "alarmField": "temp_high",
-    "description": "下位机1-温度过高",
-    "level": 1
-}
-```
-
-**事件消除**：
-```json
-{
-    "type": "alarm_cleared",
-    "protocolID": 1,
-    "frameID": 3,
-    "alarmField": "temp_high",
-    "description": "下位机1-温度过高",
-    "level": 1
-}
-```
-
-##### 3.1.10.3 通知抑制（RX_FRONTEND_NOTIFY_03）
-
-当事件被屏蔽时，notifyFrontend 步骤被跳过，前端不显示该事件。
+被标记为屏蔽的事件在产生时不向后端推送前端通知，前端界面上看不到该事件。
 
 ---
 
 ### 3.2 外部接口需求（RX_interface）
 
-#### 3.2.1 接口标识和接口图
+##### RX_interface_01 — 接口门面
 
-```
-外部调用方（NetworkReceiver / 通信监测 / observe）
-    │
-    ├── triggerAlarm(pid, fid, field, bool)
-    ├── triggerSystemEvent(name, bool)
-    ├── triggerSystemEvent(name, pid, bool)
-    ├── createAlarm(pid, fid, field, level, desc) → Event
-    ├── addEvent(Event)
-    ├── clearEvent(pid, fid, field)
-    ├── clearEvent(eventId)
-    ├── getActiveEvents() → vector<Event>
-    └── getAlarmCatalog() → vector<AlarmDef>
-            │
-            ▼
-      事件管理中心
-```
+系统对外暴露一个统一的调用入口，所有外部模块（网络接收、通信监测、状态监测组件等）仅通过该入口与系统交互。
 
-#### 3.2.2 ExternalAPI 接口（JK_API）
+##### RX_interface_02 — 对外提供服务
 
-**接口标识**：`JK_API`
+系统对外提供以下服务：
 
-ExternalAPI 是本模块的唯一对外门面，所有外部调用均通过此类。
-
-| 方法 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `createAlarm` | int pid, int fid, const string& field, EventLevel level, const string& desc | Event | 创建 Device 事件值对象，自动生成 EventId |
-| `addEvent` | const Event& | void | 提交事件到 EventManager 管线 |
-| `triggerAlarm` | int pid, int fid, const string& field, bool isActive | void | observe 对接：自动查目录后 addEvent/clearEvent |
-| `triggerSystemEvent` | const string& name, bool isActive | void | 纯系统事件入口 |
-| `triggerSystemEvent` | const string& name, int pid, bool isActive | void | 关联设备系统事件入口 |
-| `clearEvent` | int pid, int fid, const string& field | void | Device 事件消除 |
-| `clearEvent` | const string& eventId | void | 按 ID 消除（自动解析格式） |
-| `getActiveEvents` | — | vector\<Event\> | 获取所有活跃事件 |
-| `getAlarmCatalog` | — | vector\<AlarmDef\> | 获取报警目录及降级/屏蔽状态 |
-
-**通信方法**：直接 C++ 函数调用（一体模式），分离模式下通过 BackendBridge 或 Socket 桥接
-
-**异常处理**：所有方法不抛异常；无效输入（如 eventName 不在预定义列表）静默忽略
-
-**同步性**：所有方法同步返回，无异步回调
-
----
-
-### 3.3 内部接口需求（rx_in_interface）
-
-#### 3.3.1 EventManager 内部接口（RX_IN_EVENTMGR）
-
-| 方法 | 说明 |
+| 服务 | 说明 |
 |------|------|
-| `processAddEvent(const Event&)` | 查重→降级→时间戳→存储→联动→通知→日志 |
-| `processClearEvent(int, int, const string&)` | 构造 EventId → 按 ID 查找并消除（Device 事件） |
-| `processClearEvent(const EventId&)` | 按 EventId 精准查找并消除（System 事件用） |
-| `findEvent(const EventId&) → const Event*` | 按 ID 查找活跃事件，不存在返回 NULL |
-| `getActiveEvents() → vector<Event>` | 获取所有活跃事件 |
-| `findEventsByProtocolID(int) → vector<Event>` | 按 protocolID 查找所有活跃事件 |
-| `activeCount() → size_t` | 活跃事件数量 |
-| `makeEventId(int, int, const string&) → EventId` | 构造 "P-F-A" 格式 EventId（静态方法） |
+| 设备告警触发 | 给出设备标识和报警字段，系统自动查目录产生或消除事件 |
+| 系统事件触发 | 给出预定义的系统事件名，系统产生或消除事件 |
+| 手动创建事件 | 给出完整参数，系统创建事件对象 |
+| 提交事件 | 将创建好的事件提交到处理管线 |
+| 按设备标识消除 | 给出三字段，系统消除对应事件 |
+| 按编号消除 | 给出事件编号，系统自动解析并消除 |
+| 查询活跃事件 | 返回当前所有活跃事件 |
+| 查询报警目录 | 返回所有报警定义及当前降级/屏蔽状态 |
 
-#### 3.3.2 LinkageEngine 内部接口（RX_IN_LINKAGE）
+##### RX_interface_03 — 异常处理原则
 
-| 方法 | 说明 |
-|------|------|
-| `registerAction(name, callback)` | 注册命名的可执行动作 |
-| `setFallback(callback)` | 设置 per-execute 的 fallback 回调 |
-| `configureEvent(eventId, active, clear)` | 为指定 EventId 配置联动名称列表 |
-| `setLevelDefault(level, names)` | 为指定等级设置默认联动名称列表 |
-| `executeActive(const Event&)` | 执行产生侧联动动作 + 末尾调 fallback |
-| `executeCleared(const Event&)` | 执行消除侧联动动作 + 末尾调 fallback |
-| `clearAll()` | 清除所有配置和注册 |
+所有对外接口不抛异常。无效输入（如未注册的系统事件名、不存在的消除目标）静默忽略，保证系统持续稳定运行。
 
-#### 3.3.3 ConfigManager 内部接口（RX_IN_CONFIG）
+##### RX_interface_04 — 调用方式
 
-| 方法 | 说明 |
-|------|------|
-| `setDowngrade(id, level)` | 设置降级 |
-| `removeDowngrade(id)` | 取消降级 |
-| `hasDowngrade(id) → bool` | 是否已降级 |
-| `getEffectiveLevel(id, original) → EventLevel` | 获取有效等级 |
-| `setShield(id)` | 设置屏蔽 |
-| `clearShield(id)` | 取消屏蔽 |
-| `isShielded(id) → bool` | 是否被屏蔽 |
-| `getShieldCount() → int` | 屏蔽数量 |
+所有接口为同步调用，调用方不等待异步回调。
 
 ---
 
-### 3.4 内部数据需求（rx_in_data）
+### 3.3 其他需求（rx_other）
 
-#### 3.4.1 事件存储（RX_IN_DATA_STORE）
+##### RX_OTHER_01 — 性能
 
-```
-活跃事件表（核心）：
-  容器: std::unordered_map<EventId, Event>
-  操作: O(1) 查找/插入/删除
-  生命周期: 事件产生时插入，消除时 erase
-  不持久化: 重启后从下位机周期上报重建
-  容量上限: ≤ 100（受规模假设约束）
-```
+事件查重操作在常数时间内完成。在下位机满配（20 台、100 个状态帧、每秒上报）的场景下，CPU 额外占用不超过 5%。单次事件处理耗时不超过 1 毫秒。
 
-#### 3.4.2 配置存储（RX_IN_DATA_CONFIG）
+##### RX_OTHER_02 — 可靠性
 
-```
-降级映射：std::unordered_map<EventId, EventLevel>
-屏蔽集合：std::unordered_set<EventId>
-联动动作表：std::unordered_map<string, ActionCallback>
-事件联动配置：std::unordered_map<EventId, pair<vector<string>, vector<string>>>
-等级默认：std::unordered_map<int, vector<string>>
-```
-所有配置均在内存中，不持久化。
+单台下位机通信中断不应影响其他设备的事件处理。任何异常输入不应导致系统崩溃。
 
----
+##### RX_OTHER_03 — 可扩展性
 
-### 3.5 设计和实现约束（rx_design）
+新增一种联动能力只需要添加一个注册项，核心引擎不需要修改。新增前端页面只需要向标签页容器中添加新页。
 
-| 编号 | 约束项 | 说明 |
-|------|--------|------|
-| RX_DESIGN_01 | 平台 | 飞腾 FT/2000 + 银河麒麟 V10 |
-| RX_DESIGN_02 | 后端语言 | C++11，仅依赖 STL，不依赖 Qt |
-| RX_DESIGN_03 | 前端框架 | Qt 5.15.2，C++11 |
-| RX_DESIGN_04 | 前后端架构 | 一体模式通过 BackendBridge；分离模式切换为 Socket（架构切换不改后端核心） |
-| RX_DESIGN_05 | 并发模型 | 单线程事件循环，无锁设计 |
-| RX_DESIGN_06 | 编译标准 | GCC C++11，-Wall -Wextra -Werror |
-| RX_DESIGN_07 | 构造函数/析构函数 | 必须显式声明 |
-| RX_DESIGN_08 | 注释规范 | 所有公开接口必须写注释 |
-| RX_DESIGN_09 | 文档提交 | 提交 git 前完善相关文档 |
-| RX_DESIGN_10 | 异常输入 | 静默处理，不抛异常 |
-| RX_DESIGN_11 | 第三方库 | 后端无第三方库依赖；前端 Qt 5.15.2 |
+##### RX_OTHER_04 — 可维护性
 
----
+所有联动配置集中在同一处，启动时一次性完成。单个事件的联动配置一目了然。
 
-### 3.6 其他需求（rx_other）
+##### RX_OTHER_05 — 可移植性
 
-#### 3.6.1 非功能性需求
+后端代码不依赖任何特定平台或库，仅使用 C++ 标准库。
 
-| 编号 | 类别 | 描述 |
-|------|------|------|
-| RX_OTHER_01 | 性能 | 事件查重 O(1)；200 msg/s 场景 CPU ≤ 5%；单次 processAddEvent ≤ 1ms |
-| RX_OTHER_02 | 可靠性 | 单下位机通信中断不影响其他设备事件；异常输入不崩溃 |
-| RX_OTHER_03 | 可扩展性 | 新增联动类型仅需添加 Lambda + registerAction；新增前端页面向 QTabWidget 插页 |
-| RX_OTHER_04 | 可维护性 | 联动配置集中在 ActionRegistry；前后端通过回调解耦 |
-| RX_OTHER_05 | 可移植性 | 后端纯 C++11，无平台特定代码 |
-| RX_OTHER_06 | 安全性 | 降级和屏蔽必须由操作员手动重置，重启后恢复原始状态 |
+##### RX_OTHER_06 — 安全性
 
-#### 3.6.2 测试需求
-
-| 场景 | 验证点 |
-|------|--------|
-| 正常产生 | addEvent → 查重通过 → 联动执行 → 通知推送 → 日志写入 |
-| 重复上报 | 同 EventId 再次 addEvent → 静默忽略 |
-| 正常消除 | clearEvent → 消除联动 → 通知 → 日志 → erase |
-| 消除不存在事件 | clearEvent 不存在的 ID → 静默忽略 |
-| 降级生效 | setDowngrade 后 effectiveLevel 正确变更 |
-| 降级 → Info | effectiveLevel = Info 时联动不执行 |
-| 屏蔽生效 | setShield 后前端通知被抑制 |
-| 系统事件 | triggerSystemEvent 产生和消除均正常走管线 |
-| 系统事件非法名 | 未在预定义列表的名称 → 静默忽略 |
-| Signal 刷新 | 事件产生后 eventsChanged() 被 emit，前端 refresh 被触发 |
-| Tab 切换同步 | 切换 Tab 后目标页面数据为最新 |
+降级和屏蔽是临时的、有意识的操作豁免。软件重启后必须清除所有降级和屏蔽配置，由操作员手动重新判断是否需要继续保持。
 
 ---
 
 ## 4. 注释
 
-- "下位机" 指被上位机监控的物理设备
-- "报警" 与 "事件" 可互换使用
-- "消除侧" 指事件消除时执行的清理动作
-- 桩模块仅供早期开发，集成时替换为真实实现
-- 文档中 `RX_` 编号体系与设计文档中 `CSC_`/`CSU_` 编号形成追踪关系
+- "下位机"指被上位机监控的物理设备
+- "报警"与"事件"可互换使用
+- 文档中 RX_ 编号与设计文档中 CSC_/CSU_ 编号构成追踪关系
