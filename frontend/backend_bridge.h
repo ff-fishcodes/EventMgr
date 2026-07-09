@@ -60,6 +60,11 @@ signals:
     // 后端事件产生/消除时触发，前端控件连接此信号实现即时刷新
     void eventsChanged();
 
+    // LinkageEngine 中未注册的动作通过此信号传递给宿主项目
+    // 宿主连接此信号自行处理 UI 锁控等动作
+    // name 格式如 "lock_ui:panel_main"、"unlock_ui:panel_main"
+    void linkageAction(const QString& name);
+
 private:
     ConfigManager*  configMgr_;
     LinkageEngine*  linkageEng_;

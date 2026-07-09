@@ -5,6 +5,10 @@ void LinkageEngine::registerAction(const std::string& name,
     actionTable_[name] = callback;
 }
 
+void LinkageEngine::setFallback(FallbackCallback callback) {
+    fallback_ = callback;
+}
+
 void LinkageEngine::configureEvent(
         const EventId& eventId,
         const std::vector<std::string>& activeNames,
@@ -67,6 +71,8 @@ void LinkageEngine::executeNames(const std::vector<std::string>& names) {
             found = actionTable_.find(*it);
         if (found != actionTable_.end()) {
             found->second();
+        } else if (fallback_) {
+            fallback_(*it);
         }
     }
 }

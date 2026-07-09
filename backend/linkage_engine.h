@@ -18,13 +18,19 @@
 // ============================================================
 class LinkageEngine {
 public:
-    using ActionCallback = std::function<void()>;
+    using ActionCallback   = std::function<void()>;
+    // 未注册动作的 fallback：以动作名称作为参数传递给回调
+    // 宿主项目注入此回调，将动作名 emit 为 Qt 信号，由 UI 层自行处理 lock/unlock
+    using FallbackCallback = std::function<void(const std::string& name)>;
 
     LinkageEngine() {}
     ~LinkageEngine() {}
 
     // 注册一个命名能力
     void registerAction(const std::string& name, ActionCallback callback);
+
+    // 设置未注册动作的 fallback（只设一个，后来覆盖前者）
+    void setFallback(FallbackCallback callback);
 
     // 为指定事件绑定能力
     void configureEvent(const EventId& eventId,
@@ -53,6 +59,9 @@ private:
 
     // level → default names
     std::unordered_map<int, std::vector<std::string> > levelDefaults_;
+
+    // 未注册动作的 fallback（宿主注入）
+    FallbackCallback fallback_;
 };
 
 #endif // LINKAGE_ENGINE_H
