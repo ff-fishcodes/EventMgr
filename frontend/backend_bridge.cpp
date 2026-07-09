@@ -25,10 +25,10 @@ void BackendBridge::initialize() {
     // 集中注册所有能力 + 配置事件联动
     ActionRegistry::setup(*linkageEng_);
 
-    // 未在 ActionRegistry 注册的动作（如 lock_ui:xxx/unlock_ui:xxx）
-    // 通过 fallback → emit linkageAction 传递给宿主项目，由 UI 层自行处理
-    linkageEng_->setFallback([this](const std::string& name) {
-        emit linkageAction(QString::fromStdString(name));
+    // LinkageEngine 每次联动时通知宿主项目（executeActive → isActive=true）
+    // 宿主根据 eventId 自行处理 UI 锁控
+    linkageEng_->setFallback([this](const std::string& eventId, bool isActive) {
+        emit linkageAction(QString::fromStdString(eventId), isActive);
     });
 }
 

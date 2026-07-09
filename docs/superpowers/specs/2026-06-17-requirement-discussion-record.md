@@ -710,9 +710,24 @@ engine.configureEvent("1-3-temp_high",
     {});
 ```
 
-### 19.4 改动
+### 19.4 改动（初版：per-name fallback）
 - `linkage_engine.h/.cpp` — 新增 FallbackCallback + setFallback()，executeNames 查不到时调 fallback
 - `backend_bridge.h` — 新增 `linkageAction(QString)` 信号
 - `backend_bridge.cpp` — initialize() 注入 fallback emit 信号
+
+### 19.5 改进：per-execute fallback
+- 将 fallback 从 per-name（参数为动作名）改为 per-execute（参数为 eventId + isActive）
+- fallback 调用位置从 executeNames 移到 executeActive/executeCleared 末尾
+- 信号改为 `linkageAction(QString eventId, bool isActive)`
+- UI 动作名从 configureEvent 中彻底移除，宿主按 eventId 集中管理 UI 锁控
+
+### 19.6 宿主使用方式（最终版）
+```cpp
+connect(bridge, &BackendBridge::linkageAction,
+    this, [this](const QString& id, bool isActive) {
+        if (id == "1-3-temp_high") panelMain_->setEnabled(!isActive);
+        if (id == "2-1-vibration") panelMain_->setEnabled(!isActive);
+    });
+```
 
 *记录完毕。本文档供后续需求回顾和设计决策追溯使用。*

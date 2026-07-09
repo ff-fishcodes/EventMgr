@@ -19,9 +19,10 @@
 class LinkageEngine {
 public:
     using ActionCallback   = std::function<void()>;
-    // 未注册动作的 fallback：以动作名称作为参数传递给回调
-    // 宿主项目注入此回调，将动作名 emit 为 Qt 信号，由 UI 层自行处理 lock/unlock
-    using FallbackCallback = std::function<void(const std::string& name)>;
+    // 联动通知：executeActive/executeCleared 末尾调用
+    // 参数: eventId, isActive（true=产生, false=消除）
+    // 宿主项目注入此回调，emit Qt 信号，由 UI 层按事件 ID 自行处理锁控
+    using FallbackCallback = std::function<void(const std::string& eventId, bool isActive)>;
 
     LinkageEngine() {}
     ~LinkageEngine() {}

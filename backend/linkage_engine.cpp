@@ -57,11 +57,13 @@ std::vector<std::string> LinkageEngine::resolveClearNames(const Event& event) {
 void LinkageEngine::executeActive(const Event& event) {
     if (event.effectiveLevel == EventLevel::Info) return;
     executeNames(resolveActiveNames(event));
+    if (fallback_) fallback_(event.id, true);
 }
 
 void LinkageEngine::executeCleared(const Event& event) {
     if (event.effectiveLevel == EventLevel::Info) return;
     executeNames(resolveClearNames(event));
+    if (fallback_) fallback_(event.id, false);
 }
 
 void LinkageEngine::executeNames(const std::vector<std::string>& names) {
@@ -71,8 +73,6 @@ void LinkageEngine::executeNames(const std::vector<std::string>& names) {
             found = actionTable_.find(*it);
         if (found != actionTable_.end()) {
             found->second();
-        } else if (fallback_) {
-            fallback_(*it);
         }
     }
 }
