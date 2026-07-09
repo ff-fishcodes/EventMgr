@@ -51,7 +51,6 @@ void EventListWidget::refresh() {
     ui.eventTable->setRowCount(0);
 
     QVector<BackendBridge::EventEntry> events = bridge_->getActiveEvents();
-    QVector<BackendBridge::CatalogEntry> catalog = bridge_->getCatalog();
 
     for (int i = 0; i < events.size(); ++i) {
         const BackendBridge::EventEntry& e = events[i];
@@ -66,21 +65,13 @@ void EventListWidget::refresh() {
         levelItem->setForeground(levelColor(e.level));
         ui.eventTable->setItem(row, 3, levelItem);
 
-        // 查当前降级/屏蔽状态（与报警配置页共享 ConfigManager）
-        bool downgraded = false;
-        for (int j = 0; j < catalog.size(); ++j) {
-            if (catalog[j].id == e.id) {
-                downgraded = catalog[j].downgraded && catalog[j].downgradeTo == 4;
-                break;
-            }
-        }
-
+        // 降级/屏蔽状态直接来自 ConfigManager（设备事件和系统事件通用）
         ui.eventTable->setItem(row, 4,
-            new QTableWidgetItem(downgraded ? "已降级" : "正常"));
+            new QTableWidgetItem(e.downgraded ? "已降级" : "正常"));
 
         // 降级复选框
         QCheckBox* downgradeCb = new QCheckBox();
-        downgradeCb->setChecked(downgraded);
+        downgradeCb->setChecked(e.downgraded);
         QString rowId = e.id;
         connect(downgradeCb, &QCheckBox::clicked, this, [this, rowId](bool checked) {
             if (checked) bridge_->setDowngrade(rowId, 4);

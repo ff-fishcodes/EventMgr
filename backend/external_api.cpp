@@ -136,10 +136,21 @@ std::vector<Event> ExternalAPI::getActiveEvents() const {
 }
 
 std::vector<AlarmDef> ExternalAPI::getAlarmCatalog() const {
-    // 1. 从项目配置模块获取所有报警静态定义（桩）
+    // 1. 设备报警定义（桩）
     std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();
 
-    // 2. 合并 ConfigManager 当前的降级/屏蔽状态
+    // 2. 系统事件定义也纳入目录
+    const std::vector<SystemEventDef>& sysDefs = getSystemEventDefs();
+    for (std::vector<SystemEventDef>::const_iterator sit = sysDefs.begin();
+         sit != sysDefs.end(); ++sit) {
+        AlarmDef d;
+        d.id            = sit->name;
+        d.description   = sit->description;
+        d.originalLevel = sit->level;
+        defs.push_back(d);
+    }
+
+    // 3. 合并 ConfigManager 当前的降级/屏蔽状态
     for (std::vector<AlarmDef>::iterator it = defs.begin();
          it != defs.end(); ++it) {
         if (configMgr_.hasDowngrade(it->id)) {

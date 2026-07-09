@@ -34,6 +34,7 @@ public:
         QString description;
         QString timestamp;
         int     level;
+        bool    downgraded;
         bool    shielded;
     };
     QVector<EventEntry> getActiveEvents() const;

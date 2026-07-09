@@ -49,6 +49,7 @@ QVector<BackendBridge::EventEntry> BackendBridge::getActiveEvents() const {
         e.description = QString::fromStdString(it->description);
         e.timestamp   = QString::fromStdString(it->timestamp);
         e.level       = static_cast<int>(it->effectiveLevel);
+        e.downgraded  = configMgr_->hasDowngrade(it->id);
         e.shielded    = configMgr_->isShielded(it->id);
         result.append(e);
     }
