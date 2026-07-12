@@ -32,7 +32,7 @@
 └─────────────────────────────────────────┘
 ```
 
-- **后端** 纯 C++11，不依赖 Qt
+- **后端** C++11 + Qt 5.15.2
 - **前端** Qt 5.15.2，可嵌入任意 QWidget 父级
 - **前后端通信** 通过 BackendBridge 桥接（一体模式），可切换为 Socket 代理（分离模式）
 
@@ -109,9 +109,10 @@ engine.setLevelDefault(EventLevel::Emergency, {"cooler_stop"});
 ## 编译
 
 ```bash
-# 后端（无 Qt 依赖）
-g++ -std=c++11 -I backend -I backend/stubs -o test_eventmgr \
-    main.cpp backend/*.cpp backend/stubs/*.cpp
+# 后端
+g++ -std=c++11 -I backend -I backend/stubs \
+    main.cpp backend/*.cpp backend/stubs/*.cpp \
+    $(pkg-config --cflags --libs Qt5Core Qt5Concurrent)
 
 # 前端
 qmake frontend/frontend.pro

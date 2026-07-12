@@ -1,10 +1,16 @@
 #include "cmd_sender.h"
 #include <iostream>
+#include <thread>
+#include <chrono>
 
 void CmdSender::send(int protocolID, const std::string& target,
                      const std::string& param) {
-    // 桩实现：打印到标准输出，实际项目中通过网络向下位机发送指令
+    // 桩实现：模拟发送指令并等待 ACK（阻塞 2 秒），验证线程池异步执行
     std::cout << "[CmdSender::send] protocolID=" << protocolID
               << " target=" << target
-              << " param=" << param << std::endl;
+              << " param=" << param
+              << " [等待ACK...]" << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "[CmdSender::ack]  protocolID=" << protocolID
+              << " target=" << target << " [ACK收到]" << std::endl;
 }

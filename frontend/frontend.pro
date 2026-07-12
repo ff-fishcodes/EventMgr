@@ -3,7 +3,7 @@
 # 编译: qmake && make
 # ============================================================
 
-QT       += core gui widgets
+QT       += core gui widgets concurrent
 TEMPLATE = app
 CONFIG  += c++11
 TARGET   = EventMgrFrontend

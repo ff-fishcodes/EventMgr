@@ -1,4 +1,23 @@
 #include "linkage_engine.h"
+#include <QRunnable>
+
+namespace {
+
+// 将 std::function 包装为 QRunnable，线程池异步执行
+class ActionTask : public QRunnable {
+    LinkageEngine::ActionCallback callback_;
+public:
+    explicit ActionTask(LinkageEngine::ActionCallback cb) : callback_(cb) {
+        setAutoDelete(true);
+    }
+    void run() { callback_(); }
+};
+
+} // namespace
+
+LinkageEngine::LinkageEngine() {
+    linkagePool_.setMaxThreadCount(4);  // 联动专用线程池
+}
 
 void LinkageEngine::registerAction(const std::string& name,
                                     ActionCallback callback) {
@@ -72,12 +91,13 @@ void LinkageEngine::executeNames(const std::vector<std::string>& names) {
         std::unordered_map<std::string, ActionCallback>::iterator
             found = actionTable_.find(*it);
         if (found != actionTable_.end()) {
-            found->second();
+            linkagePool_.start(new ActionTask(found->second));
         }
     }
 }
 
 void LinkageEngine::clearAll() {
+    linkagePool_.waitForDone();
     actionTable_.clear();
     eventConfig_.clear();
     levelDefaults_.clear();
