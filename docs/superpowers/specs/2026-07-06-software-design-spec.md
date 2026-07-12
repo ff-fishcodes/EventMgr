@@ -32,7 +32,7 @@
 
 ### 决策 1：前后端分离 + 桥接层一体模式
 
-**决策**：后端 C++11 + Qt 5.15.2，前端 Qt 5.15.2。当前采用一体模式，通过 `BackendBridge` 直接持有后端实例。预留分离模式——BackendBridge 可替换为 Socket 代理，接口不变。
+**决策**：后端 C++11 + Qt 5.15.10，前端 Qt 5.15.10。当前采用一体模式，通过 `BackendBridge` 直接持有后端实例。预留分离模式——BackendBridge 可替换为 Socket 代理，接口不变。
 
 **理由**：满足 C++11 后端约束；一体模式降低开发阶段的线程/通信复杂度；桥接层保证两种模式切换时外部接口不变。
 
@@ -100,7 +100,7 @@
 | 结构体 | `SystemEventDef` | 系统事件定义：name, description, level |
 | 结构体 | `Event` | 事件值对象：id, source, protocolID, frameID, alarmField, description, originalLevel, effectiveLevel, state, timestamp, 兜底联动列表 |
 
-**依赖**：STL (`<string>`, `<vector>`)，Qt 5.15.2（QThreadPool）
+**依赖**：STL (`<string>`, `<vector>`)，Qt 5.15.10（QThreadPool）
 
 #### 4.1.2 系统事件预定义列表（CSC_SYSTEM_EVENTS）
 
