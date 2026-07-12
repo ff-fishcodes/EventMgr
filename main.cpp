@@ -27,6 +27,11 @@ int main() {
     api.triggerSystemEvent("cpu_overload", true);
     std::cout << "活跃事件: " << api.getActiveEvents().size() << std::endl << std::endl;
 
+    std::cout << "--- 演示5: 未注册系统事件 + 设备事件不在目录 ---" << std::endl;
+    api.triggerSystemEvent("unknown_event", true);
+    api.triggerAlarm(9, 9, "unknown_field", true);
+    std::cout << "活跃事件: " << api.getActiveEvents().size() << std::endl << std::endl;
+
     std::cout << "===== 事件管理中心 演示结束 =====" << std::endl;
     return 0;
 }

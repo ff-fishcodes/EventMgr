@@ -2,6 +2,7 @@
 #include "event_manager.h"
 #include "config_manager.h"
 #include "stubs/alarm_catalog.h"
+#include "stubs/log_writer.h"
 #include "system_events.h"
 #include <sstream>
 #include <cstdlib>
@@ -53,7 +54,12 @@ void ExternalAPI::triggerAlarm(int protocolID, int frameID,
         }
     }
 
-    // 目录中找不到 → 用默认值（提示等级 + 字段名作描述）
+    // 目录中找不到 → 用默认值（提示等级 + 字段名作描述），并记录日志
+    {
+        std::ostringstream warn;
+        warn << "事件不在报警目录中: " << targetId << "，使用默认等级(提示)";
+        LogWriter::write(warn.str());
+    }
     Event event = createAlarm(protocolID, frameID, alarmField,
                                EventLevel::Info, alarmField);
     addEvent(event);
@@ -65,7 +71,12 @@ void ExternalAPI::addEvent(const Event& event) {
 
 void ExternalAPI::triggerSystemEvent(const std::string& eventName, bool isActive) {
     const SystemEventDef* def = findSystemEventDef(eventName);
-    if (!def) return;  // 未在预定义列表中，忽略
+    if (!def) {
+        std::ostringstream warn;
+        warn << "未注册的系统事件名: " << eventName << "，忽略";
+        LogWriter::write(warn.str());
+        return;
+    }
 
     if (!isActive) {
         clearEvent(eventName);
@@ -87,7 +98,12 @@ void ExternalAPI::triggerSystemEvent(const std::string& eventName, bool isActive
 void ExternalAPI::triggerSystemEvent(const std::string& eventName,
                                        int protocolID, bool isActive) {
     const SystemEventDef* def = findSystemEventDef(eventName);
-    if (!def) return;
+    if (!def) {
+        std::ostringstream warn;
+        warn << "未注册的系统事件名: " << eventName << "，忽略";
+        LogWriter::write(warn.str());
+        return;
+    }
 
     std::ostringstream idStr;
     idStr << eventName << ":" << protocolID;
