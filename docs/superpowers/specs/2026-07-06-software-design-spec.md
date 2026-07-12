@@ -32,7 +32,7 @@
 
 ### 决策 1：前后端分离 + 桥接层一体模式
 
-**决策**：后端纯 C++11（不依赖 Qt），前端 Qt 5.15.2。当前采用一体模式，通过 `BackendBridge` 直接持有后端实例。预留分离模式——BackendBridge 可替换为 Socket 代理，接口不变。
+**决策**：后端 C++11 + Qt 5.15.2，前端 Qt 5.15.2。当前采用一体模式，通过 `BackendBridge` 直接持有后端实例。预留分离模式——BackendBridge 可替换为 Socket 代理，接口不变。
 
 **理由**：满足 C++11 后端约束；一体模式降低开发阶段的线程/通信复杂度；桥接层保证两种模式切换时外部接口不变。
 
@@ -42,7 +42,16 @@
 
 **理由**：Lambda 闭包捕获各自所需的参数（如目标设备、指令等），避免了 `LinkageAction` 结构体中 target/param 等通用字段的语义匹配问题。字符串名称使配置表可读、可维护。
 
-### 决策 3：ActionRegistry 集中注册
+### 决策 3：联动线程池异步执行
+
+**决策**：联动动作不在事件处理管线中同步执行，而是提交到联动专用线程池异步执行。
+
+**理由**：
+- 下位机指令发送采用请求-响应模式，需要等待 ACK 确认，同步执行会阻塞整个事件管线
+- 独立线程池（4 线程）使多个设备的联动指令可以并发发送，各自等待 ACK 互不干扰
+- 事件处理管线（查重、降级、存储、通知、日志）保持同步快速返回，不受联动阻塞影响
+
+### 决策 4：ActionRegistry 集中注册
 
 **决策**：所有联动动作注册和事件联动配置集中在 `ActionRegistry::setup()` 中完成，业务代码不散落注册逻辑。
 
@@ -91,7 +100,7 @@
 | 结构体 | `SystemEventDef` | 系统事件定义：name, description, level |
 | 结构体 | `Event` | 事件值对象：id, source, protocolID, frameID, alarmField, description, originalLevel, effectiveLevel, state, timestamp, 兜底联动列表 |
 
-**依赖**：仅依赖 STL (`<string>`, `<vector>`)
+**依赖**：STL (`<string>`, `<vector>`)，Qt 5.15.2（QThreadPool）
 
 #### 4.1.2 系统事件预定义列表（CSC_SYSTEM_EVENTS）
 
