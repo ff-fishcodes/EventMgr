@@ -5,6 +5,7 @@
 #include "stubs/log_writer.h"
 #include <sstream>
 #include <ctime>
+#include <QMutexLocker>
 
 // ============================================================
 // 构造 / 辅助
@@ -29,6 +30,7 @@ EventId EventManager::makeEventId(int protocolID, int frameID,
 // ============================================================
 
 void EventManager::processAddEvent(const Event& event) {
+    QMutexLocker locker(&mutex_);
     std::unordered_map<EventId, Event>::iterator it = activeEvents_.find(event.id);
     if (it != activeEvents_.end()) {
         return;  // 重复上报
@@ -61,6 +63,7 @@ void EventManager::processAddEvent(const Event& event) {
 
 void EventManager::processClearEvent(int protocolID, int frameID,
                                       const std::string& alarmField) {
+    QMutexLocker locker(&mutex_);
     EventId id = makeEventId(protocolID, frameID, alarmField);
 
     std::unordered_map<EventId, Event>::iterator it = activeEvents_.find(id);
@@ -81,6 +84,7 @@ void EventManager::processClearEvent(int protocolID, int frameID,
 }
 
 void EventManager::processClearEvent(const EventId& eventId) {
+    QMutexLocker locker(&mutex_);
     std::unordered_map<EventId, Event>::iterator it = activeEvents_.find(eventId);
     if (it == activeEvents_.end()) {
         return;
@@ -103,6 +107,7 @@ void EventManager::processClearEvent(const EventId& eventId) {
 // ============================================================
 
 const Event* EventManager::findEvent(const EventId& id) const {
+    QMutexLocker locker(&mutex_);
     std::unordered_map<EventId, Event>::const_iterator it = activeEvents_.find(id);
     if (it != activeEvents_.end()) {
         return &(it->second);
@@ -111,6 +116,7 @@ const Event* EventManager::findEvent(const EventId& id) const {
 }
 
 std::vector<Event> EventManager::getActiveEvents() const {
+    QMutexLocker locker(&mutex_);
     std::vector<Event> result;
     for (std::unordered_map<EventId, Event>::const_iterator it = activeEvents_.begin();
          it != activeEvents_.end(); ++it) {
@@ -120,10 +126,12 @@ std::vector<Event> EventManager::getActiveEvents() const {
 }
 
 size_t EventManager::activeCount() const {
+    QMutexLocker locker(&mutex_);
     return activeEvents_.size();
 }
 
 std::vector<Event> EventManager::findEventsByProtocolID(int protocolID) const {
+    QMutexLocker locker(&mutex_);
     std::vector<Event> result;
     for (std::unordered_map<EventId, Event>::const_iterator it = activeEvents_.begin();
          it != activeEvents_.end(); ++it) {
