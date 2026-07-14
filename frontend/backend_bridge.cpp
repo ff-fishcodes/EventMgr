@@ -1,47 +1,42 @@
 #include "backend_bridge.h"
+#include "../backend/event_mgr_module.h"
 #include "../backend/action_registry.h"
+#include "../backend/external_api.h"
+#include "../backend/event_manager.h"
+#include "../backend/config_manager.h"
+#include "../backend/linkage_engine.h"
 
-BackendBridge::BackendBridge(QObject* parent) : QObject(parent),
-    configMgr_(nullptr), linkageEng_(nullptr), eventMgr_(nullptr), api_(nullptr) {}
+BackendBridge::BackendBridge(QObject* parent) : QObject(parent) {}
 
-BackendBridge::~BackendBridge() {
-    delete api_;
-    delete eventMgr_;
-    delete linkageEng_;
-    delete configMgr_;
-}
+BackendBridge::~BackendBridge() {}
 
 void BackendBridge::initialize() {
-    configMgr_  = new ConfigManager();
-    linkageEng_ = new LinkageEngine();
+    // 一键启动后端模块（若已由 EventMgrModule::init() 启动则跳过）
+    EventMgrModule::init();
 
-    // 后端事件变化时 emit eventsChanged()，前端即时刷新
-    auto notifyCb = [this](const std::string&) {
+    // 一体模式：注入前端通知回调
+    EventManager::instance().setNotifyCallback([this](const std::string&) {
         emit eventsChanged();
-    };
-    eventMgr_   = new EventManager(*configMgr_, *linkageEng_, notifyCb);
-    api_        = new ExternalAPI(*eventMgr_, *configMgr_);
-
-    // 集中注册所有能力 + 配置事件联动
-    ActionRegistry::setup(*linkageEng_);
-
-    // LinkageEngine 每次联动时通知宿主项目（executeActive → isActive=true）
-    // 宿主根据 eventId 自行处理 UI 锁控
-    linkageEng_->setFallback([this](const std::string& eventId, bool isActive) {
-        emit linkageAction(QString::fromStdString(eventId), isActive);
     });
+
+    // 一体模式：注入 UI 锁控 fallback
+    LinkageEngine::instance().setFallback(
+        [this](const std::string& eventId, bool isActive) {
+            emit linkageAction(QString::fromStdString(eventId), isActive);
+        });
 }
 
 void BackendBridge::triggerAlarm(const QString& id, bool isActive) {
     QStringList parts = id.split('-');
     if (parts.size() != 3) return;
-    api_->triggerAlarm(parts[0].toInt(), parts[1].toInt(),
-                       parts[2].toStdString(), isActive);
+    ExternalAPI::instance().triggerAlarm(
+        parts[0].toInt(), parts[1].toInt(),
+        parts[2].toStdString(), isActive);
 }
 
 QVector<BackendBridge::EventEntry> BackendBridge::getActiveEvents() const {
     QVector<EventEntry> result;
-    std::vector<Event> events = api_->getActiveEvents();
+    std::vector<Event> events = ExternalAPI::instance().getActiveEvents();
     for (std::vector<Event>::const_iterator it = events.begin();
          it != events.end(); ++it) {
         EventEntry e;
@@ -49,8 +44,8 @@ QVector<BackendBridge::EventEntry> BackendBridge::getActiveEvents() const {
         e.description = QString::fromStdString(it->description);
         e.timestamp   = QString::fromStdString(it->timestamp);
         e.level       = static_cast<int>(it->effectiveLevel);
-        e.downgraded  = configMgr_->hasDowngrade(it->id);
-        e.shielded    = configMgr_->isShielded(it->id);
+        e.downgraded  = ConfigManager::instance().hasDowngrade(it->id);
+        e.shielded    = ConfigManager::instance().isShielded(it->id);
         result.append(e);
     }
     return result;
@@ -58,7 +53,7 @@ QVector<BackendBridge::EventEntry> BackendBridge::getActiveEvents() const {
 
 QVector<BackendBridge::CatalogEntry> BackendBridge::getCatalog() const {
     QVector<CatalogEntry> result;
-    std::vector<AlarmDef> defs = api_->getAlarmCatalog();
+    std::vector<AlarmDef> defs = ExternalAPI::instance().getAlarmCatalog();
     for (std::vector<AlarmDef>::const_iterator it = defs.begin();
          it != defs.end(); ++it) {
         CatalogEntry e;
@@ -74,21 +69,22 @@ QVector<BackendBridge::CatalogEntry> BackendBridge::getCatalog() const {
 }
 
 void BackendBridge::setDowngrade(const QString& id, int newLevel) {
-    configMgr_->setDowngrade(id.toStdString(), static_cast<EventLevel>(newLevel));
+    ConfigManager::instance().setDowngrade(
+        id.toStdString(), static_cast<EventLevel>(newLevel));
 }
 
 void BackendBridge::removeDowngrade(const QString& id) {
-    configMgr_->removeDowngrade(id.toStdString());
+    ConfigManager::instance().removeDowngrade(id.toStdString());
 }
 
 void BackendBridge::setShield(const QString& id) {
-    configMgr_->setShield(id.toStdString());
+    ConfigManager::instance().setShield(id.toStdString());
 }
 
 void BackendBridge::clearShield(const QString& id) {
-    configMgr_->clearShield(id.toStdString());
+    ConfigManager::instance().clearShield(id.toStdString());
 }
 
 int BackendBridge::shieldCount() const {
-    return configMgr_->getShieldCount();
+    return ConfigManager::instance().getShieldCount();
 }

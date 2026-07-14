@@ -15,10 +15,11 @@ class LinkageEngine;
 // ============================================================
 class EventManager {
 public:
-    // 前端通知回调: 接收 JSON 字符串
-    //   - 分离模式: 回调 = SocketServer::notifyFrontend
-    //   - 一体模式: 回调 = 直接更新 Qt 事件列表
     using NotifyCallback = std::function<void(const std::string& json)>;
+
+    // 单例
+    static EventManager& instance();
+    static void setInstance(EventManager* mgr);
 
     // 构造函数：注入依赖
     // notifyCb 可选 — 不传则默认走 SocketServer（向后兼容）
@@ -28,7 +29,11 @@ public:
 
     ~EventManager() {}
 
-    // 处理告警产生
+    EventManager(const EventManager&) = delete;
+    EventManager& operator=(const EventManager&) = delete;
+
+    // 一体模式下注入前端通知回调
+    void setNotifyCallback(NotifyCallback cb) { notifyCb_ = cb; }
     void processAddEvent(const Event& event);
 
     // 处理告警消除（设备事件）
@@ -69,6 +74,8 @@ private:
     NotifyCallback notifyCb_;   // 为空时默认走 SocketServer
 
     mutable QMutex mutex_;  // 保护 activeEvents_ 并发访问
+
+    static EventManager* instance_;
 };
 
 #endif // EVENT_MANAGER_H

@@ -22,8 +22,15 @@ public:
     using ActionCallback   = std::function<void()>;
     using FallbackCallback = std::function<void(const std::string& eventId, bool isActive)>;
 
+    // 单例
+    static LinkageEngine& instance();
+    static void setInstance(LinkageEngine* eng);
+
     LinkageEngine();
     ~LinkageEngine() {}
+
+    LinkageEngine(const LinkageEngine&) = delete;
+    LinkageEngine& operator=(const LinkageEngine&) = delete;
 
     void registerAction(const std::string& name, ActionCallback callback);
     void setFallback(FallbackCallback callback);
@@ -50,6 +57,8 @@ private:
 
     // 联动动作独享线程池，不与全局共用，避免被其他 Qt 任务挤占
     QThreadPool linkagePool_;
+
+    static LinkageEngine* instance_;
 };
 
 #endif // LINKAGE_ENGINE_H

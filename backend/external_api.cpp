@@ -7,6 +7,11 @@
 #include <sstream>
 #include <cstdlib>
 
+ExternalAPI* ExternalAPI::instance_ = NULL;
+
+ExternalAPI& ExternalAPI::instance() { return *instance_; }
+void ExternalAPI::setInstance(ExternalAPI* api) { instance_ = api; }
+
 ExternalAPI::ExternalAPI(EventManager& eventMgr, ConfigManager& configMgr)
     : eventMgr_(eventMgr), configMgr_(configMgr) {}
 

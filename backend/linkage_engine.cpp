@@ -1,6 +1,11 @@
 #include "linkage_engine.h"
 #include <QRunnable>
 
+LinkageEngine* LinkageEngine::instance_ = NULL;
+
+LinkageEngine& LinkageEngine::instance() { return *instance_; }
+void LinkageEngine::setInstance(LinkageEngine* eng) { instance_ = eng; }
+
 namespace {
 
 // 将 std::function 包装为 QRunnable，线程池异步执行

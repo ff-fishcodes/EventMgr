@@ -1,6 +1,11 @@
 #include "config_manager.h"
 #include <QMutexLocker>
 
+ConfigManager* ConfigManager::instance_ = NULL;
+
+ConfigManager& ConfigManager::instance() { return *instance_; }
+void ConfigManager::setInstance(ConfigManager* mgr) { instance_ = mgr; }
+
 // ========= 降级相关 =========
 
 void ConfigManager::setDowngrade(const EventId& id, EventLevel newLevel) {

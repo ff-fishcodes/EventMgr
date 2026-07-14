@@ -14,6 +14,12 @@ void EventMgrModule::init() {
     eventMgr_   = new EventManager(*configMgr_, *linkageEng_);
     api_        = new ExternalAPI(*eventMgr_, *configMgr_);
 
+    // 注册为单例，供外部线程通过 instance() 获取
+    ConfigManager::setInstance(configMgr_);
+    LinkageEngine::setInstance(linkageEng_);
+    EventManager::setInstance(eventMgr_);
+    ExternalAPI::setInstance(api_);
+
     ActionRegistry::setup(*linkageEng_);
 }
 

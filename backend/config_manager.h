@@ -14,8 +14,14 @@
 // ============================================================
 class ConfigManager {
 public:
+    static ConfigManager& instance();
+    static void setInstance(ConfigManager* mgr);
+
     ConfigManager() {}
     ~ConfigManager() {}
+
+    ConfigManager(const ConfigManager&) = delete;
+    ConfigManager& operator=(const ConfigManager&) = delete;
 
     // ========= 降级相关 =========
 
@@ -58,6 +64,8 @@ private:
     std::unordered_set<EventId> shieldSet_;
 
     mutable QMutex mutex_;  // 保护配置读写并发
+
+    static ConfigManager* instance_;
 };
 
 #endif // CONFIG_MANAGER_H

@@ -25,6 +25,7 @@ SOURCES += \
     ../backend/linkage_engine.cpp \
     ../backend/config_manager.cpp \
     ../backend/action_registry.cpp \
+    ../backend/event_mgr_module.cpp \
     ../backend/system_events.cpp \
     ../backend/stubs/alarm_catalog.cpp \
     ../backend/stubs/socket_server.cpp \

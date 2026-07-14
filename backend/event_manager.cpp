@@ -7,6 +7,11 @@
 #include <ctime>
 #include <QMutexLocker>
 
+EventManager* EventManager::instance_ = NULL;
+
+EventManager& EventManager::instance() { return *instance_; }
+void EventManager::setInstance(EventManager* mgr) { instance_ = mgr; }
+
 // ============================================================
 // 构造 / 辅助
 // ============================================================

@@ -5,14 +5,10 @@
 #include <QVector>
 #include <QString>
 #include "../backend/event_types.h"
-#include "../backend/config_manager.h"
-#include "../backend/linkage_engine.h"
-#include "../backend/event_manager.h"
-#include "../backend/external_api.h"
 
 // ============================================================
-// BackendBridge — Qt 与纯 C++ 后端的桥接层
-// 一体模式下直接持有后端实例，分离模式下可替换为 Socket 代理
+// BackendBridge — Qt 桥接层
+// 一体模式下通过单例访问后端，分离模式下可替换为 Socket 代理
 // ============================================================
 class BackendBridge : public QObject {
     Q_OBJECT
@@ -20,10 +16,8 @@ public:
     explicit BackendBridge(QObject* parent = nullptr);
     ~BackendBridge();
 
-    // 初始化后端模块 + 注册 handler + 配置事件联动
+    // 初始化后端模块 + 注入回调
     void initialize();
-
-    ExternalAPI& api() { return *api_; }
 
     // observe 对接
     void triggerAlarm(const QString& id, bool isActive);
@@ -58,19 +52,8 @@ public:
     int  shieldCount() const;
 
 signals:
-    // 后端事件产生/消除时触发，前端控件连接此信号实现即时刷新
     void eventsChanged();
-
-    // LinkageEngine 每次 executeActive/executeCleared 末尾触发
-    // 宿主连接此信号按 eventId 自行处理 UI 锁控
-    // isActive=true → 锁控件, false → 解锁控件
     void linkageAction(const QString& eventId, bool isActive);
-
-private:
-    ConfigManager*  configMgr_;
-    LinkageEngine*  linkageEng_;
-    EventManager*   eventMgr_;
-    ExternalAPI*    api_;
 };
 
 #endif

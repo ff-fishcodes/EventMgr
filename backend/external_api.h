@@ -19,8 +19,15 @@ class ConfigManager;
 // ============================================================
 class ExternalAPI {
 public:
+    // 单例
+    static ExternalAPI& instance();
+    static void setInstance(ExternalAPI* api);
+
     ExternalAPI(EventManager& eventMgr, ConfigManager& configMgr);
     ~ExternalAPI() {}
+
+    ExternalAPI(const ExternalAPI&) = delete;
+    ExternalAPI& operator=(const ExternalAPI&) = delete;
 
     // ========= 工厂方法 =========
 
@@ -57,6 +64,7 @@ public:
 private:
     EventManager& eventMgr_;
     ConfigManager& configMgr_;
+    static ExternalAPI* instance_;
 };
 
 #endif // EXTERNAL_API_H
