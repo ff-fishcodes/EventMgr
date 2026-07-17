@@ -37,7 +37,7 @@ public:
     void processAddEvent(const Event& event);
 
     // 处理告警消除（设备事件）
-    void processClearEvent(int protocolID, int frameID, const std::string& alarmField);
+    void processClearEvent(const std::string& deviceName, int frameID, const std::string& alarmField);
     // 处理告警消除（按 EventId 精准匹配，系统事件用）
     void processClearEvent(const EventId& eventId);
 
@@ -52,12 +52,12 @@ public:
     // 获取所有当前活跃事件
     std::vector<Event> getActiveEvents() const;
 
-    // 按 protocolID 查找该下位机的所有活跃事件（用于断联批量处理等）
-    std::vector<Event> findEventsByProtocolID(int protocolID) const;
+    // 按 deviceName 查找该设备的所有活跃事件（用于断联批量处理等）
+    std::vector<Event> findEventsByDeviceName(const std::string& deviceName) const;
 
 private:
     // 生成 EventId
-    static EventId makeEventId(int protocolID, int frameID, const std::string& alarmField);
+    static EventId makeEventId(const std::string& deviceName, int frameID, const std::string& alarmField);
 
     // 通知前端（通过注入的回调；若未注入则走 SocketServer 桩）
     // isActive: true=alarm_active, false=alarm_cleared

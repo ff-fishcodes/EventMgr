@@ -9,11 +9,11 @@
 // ============================================================
 class CmdSender {
 public:
-    // 向指定下位机发送管控指令
-    // protocolID: 目标下位机
+    // 向指定设备发送管控指令
+    // deviceName: 目标设备
     // target:     指令名称
     // param:      指令参数
-    static void send(int protocolID, const std::string& target,
+    static void send(const std::string& deviceName, const std::string& target,
                      const std::string& param);
 };
 

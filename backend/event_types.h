@@ -33,8 +33,11 @@ enum class EventSource {
 
 // ============================================================
 // 事件编号
-//   Device 事件: "protocolID-frameID-alarmField"
-//   System 事件: eventName，关联设备时 "eventName:protocolID"
+//   格式: "deviceName-frameID-字段名"
+//   设备事件: "锅炉-3-temp_high"
+//   关联事件: "锅炉-0-comm_lost" (frameID=0)
+//   系统事件: "系统-0-disk_full"  (frameID=0, deviceName 用户自定义)
+//   本模块不做 deviceName 校验
 // ============================================================
 using EventId = std::string;
 
@@ -42,7 +45,7 @@ using EventId = std::string;
 // 报警定义 — 前端报警目录的每一行
 // ============================================================
 struct AlarmDef {
-    EventId     id;               // "protocolID-frameID-alarmField"
+    EventId     id;               // "deviceName-frameID-alarmField"
     std::string description;      // 报警描述
     EventLevel  originalLevel;    // 原始等级
     bool        downgraded;       // 是否已降级
@@ -72,12 +75,12 @@ struct SystemEventDef {
 // 事件值对象 — 自包含，创建时指定等级，联动由引擎配置表决定
 // ============================================================
 struct Event {
-    EventId     id;               // Device: "protocolID-frameID-alarmField"; System: 如 "comm_lost"
+    EventId     id;               // "deviceName-frameID-字段名"
     EventSource source;           // 事件来源
-    int         protocolID;       // System 事件无关联设备时为 0
-    int         frameID;          // System 事件为 0
-    std::string alarmField;       // System 事件同 eventName
-    std::string description;      // 报警描述（eg: "下位机1-温度过高"）
+    std::string deviceName;       // 设备名（系统事件为自定义名，如"系统"）
+    int         frameID;          // 状态帧标识（系统事件为 0）
+    std::string alarmField;       // 报警字段名
+    std::string description;      // 报警描述（eg: "锅炉-温度过高"）
     EventLevel  originalLevel;    // 业务创建时指定的原始等级
     EventLevel  effectiveLevel;   // 经降级后的实际等级（addEvent 时计算）
     EventState  state;
@@ -88,7 +91,7 @@ struct Event {
     std::vector<std::string> clearActions;
 
     Event() : source(EventSource::Device),
-              protocolID(0), frameID(0),
+              frameID(0),
               originalLevel(EventLevel::Info),
               effectiveLevel(EventLevel::Info),
               state(EventState::Active) {}

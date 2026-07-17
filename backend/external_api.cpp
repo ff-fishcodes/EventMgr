@@ -15,12 +15,12 @@ void ExternalAPI::setInstance(ExternalAPI* api) { instance_ = api; }
 ExternalAPI::ExternalAPI(EventManager& eventMgr, ConfigManager& configMgr)
     : eventMgr_(eventMgr), configMgr_(configMgr) {}
 
-Event ExternalAPI::createAlarm(int protocolID, int frameID,
+Event ExternalAPI::createAlarm(const std::string& deviceName, int frameID,
                                 const std::string& alarmField,
                                 EventLevel level,
                                 const std::string& description) {
     Event event;
-    event.protocolID    = protocolID;
+    event.deviceName    = deviceName;
     event.frameID       = frameID;
     event.alarmField    = alarmField;
     event.description   = description;
@@ -29,22 +29,22 @@ Event ExternalAPI::createAlarm(int protocolID, int frameID,
     event.state         = EventState::Active;
 
     std::ostringstream oss;
-    oss << protocolID << "-" << frameID << "-" << alarmField;
+    oss << deviceName << "-" << frameID << "-" << alarmField;
     event.id = oss.str();
 
     return event;
 }
 
-void ExternalAPI::triggerAlarm(int protocolID, int frameID,
+void ExternalAPI::triggerAlarm(const std::string& deviceName, int frameID,
                                  const std::string& alarmField, bool isActive) {
     if (!isActive) {
-        clearEvent(protocolID, frameID, alarmField);
+        clearEvent(deviceName, frameID, alarmField);
         return;
     }
 
     // 构造 EventId 用于查目录
     std::ostringstream idStr;
-    idStr << protocolID << "-" << frameID << "-" << alarmField;
+    idStr << deviceName << "-" << frameID << "-" << alarmField;
     std::string targetId = idStr.str();
 
     // 从报警目录查定义（等级和描述由配置模块提供，observe 不需要知道）
@@ -52,7 +52,7 @@ void ExternalAPI::triggerAlarm(int protocolID, int frameID,
     for (std::vector<AlarmDef>::const_iterator it = defs.begin();
          it != defs.end(); ++it) {
         if (it->id == targetId) {
-            Event event = createAlarm(protocolID, frameID, alarmField,
+            Event event = createAlarm(deviceName, frameID, alarmField,
                                        it->originalLevel, it->description);
             addEvent(event);
             return;
@@ -65,7 +65,7 @@ void ExternalAPI::triggerAlarm(int protocolID, int frameID,
         warn << "事件不在报警目录中: " << targetId << "，使用默认等级(提示)";
         LogWriter::write(warn.str());
     }
-    Event event = createAlarm(protocolID, frameID, alarmField,
+    Event event = createAlarm(deviceName, frameID, alarmField,
                                EventLevel::Info, alarmField);
     addEvent(event);
 }
@@ -88,8 +88,10 @@ void ExternalAPI::triggerSystemEvent(const std::string& eventName, bool isActive
         return;
     }
 
+    // 系统事件统一格式: "系统-0-eventName"
     Event event;
     event.source        = EventSource::System;
+    event.deviceName    = "系统";
     event.id            = eventName;
     event.alarmField    = eventName;
     event.description   = def->description;
@@ -101,7 +103,7 @@ void ExternalAPI::triggerSystemEvent(const std::string& eventName, bool isActive
 }
 
 void ExternalAPI::triggerSystemEvent(const std::string& eventName,
-                                       int protocolID, bool isActive) {
+                                       const std::string& deviceName, bool isActive) {
     const SystemEventDef* def = findSystemEventDef(eventName);
     if (!def) {
         std::ostringstream warn;
@@ -110,8 +112,9 @@ void ExternalAPI::triggerSystemEvent(const std::string& eventName,
         return;
     }
 
+    // 关联设备系统事件: "deviceName-0-eventName"
     std::ostringstream idStr;
-    idStr << eventName << ":" << protocolID;
+    idStr << deviceName << "-0-" << eventName;
     std::string fullId = idStr.str();
 
     if (!isActive) {
@@ -122,9 +125,9 @@ void ExternalAPI::triggerSystemEvent(const std::string& eventName,
     Event event;
     event.source        = EventSource::System;
     event.id            = fullId;
-    event.protocolID    = protocolID;
+    event.deviceName    = deviceName;
     event.alarmField    = eventName;
-    event.description   = "下位机" + std::to_string(protocolID) + "-" + def->description;
+    event.description   = deviceName + "-" + def->description;
     event.originalLevel = def->level;
     event.effectiveLevel = def->level;
     event.state         = EventState::Active;
@@ -132,22 +135,22 @@ void ExternalAPI::triggerSystemEvent(const std::string& eventName,
     addEvent(event);
 }
 
-void ExternalAPI::clearEvent(int protocolID, int frameID,
+void ExternalAPI::clearEvent(const std::string& deviceName, int frameID,
                               const std::string& alarmField) {
-    eventMgr_.processClearEvent(protocolID, frameID, alarmField);
+    eventMgr_.processClearEvent(deviceName, frameID, alarmField);
 }
 
 void ExternalAPI::clearEvent(const std::string& eventId) {
-    // 尝试按 Device 格式 "P-F-A" 解析（含两个 '-'）
+    // 尝试按 "deviceName-frameID-alarmField" 格式解析（含两个 '-'）
     size_t d1 = eventId.find('-');
     size_t d2 = eventId.find('-', d1 + 1);
     if (d1 != std::string::npos && d2 != std::string::npos) {
-        int pid = std::atoi(eventId.substr(0, d1).c_str());
+        std::string devName = eventId.substr(0, d1);
         int fid = std::atoi(eventId.substr(d1 + 1, d2 - d1 - 1).c_str());
         std::string field = eventId.substr(d2 + 1);
-        eventMgr_.processClearEvent(pid, fid, field);
+        eventMgr_.processClearEvent(devName, fid, field);
     } else {
-        // System 事件（如 "comm_lost"、"comm_lost:3"），直接 ID 匹配
+        // 纯系统事件名，直接 ID 匹配
         eventMgr_.processClearEvent(eventId);
     }
 }

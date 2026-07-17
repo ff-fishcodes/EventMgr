@@ -14,7 +14,7 @@
 //   ExternalAPI& api = EventMgrModule::api();        // 获取接口
 //
 // observe 组件:
-//   EventMgrModule::api().triggerAlarm(1, 3, "temp_high", true);
+//   EventMgrModule::api().triggerAlarm("锅炉", 3, "temp_high", true);
 // ============================================================
 class EventMgrModule {
 public:

@@ -23,10 +23,10 @@ EventManager::EventManager(ConfigManager& configMgr, LinkageEngine& linkageEng,
                            NotifyCallback notifyCb)
     : configMgr_(configMgr), linkageEng_(linkageEng), notifyCb_(notifyCb) {}
 
-EventId EventManager::makeEventId(int protocolID, int frameID,
+EventId EventManager::makeEventId(const std::string& deviceName, int frameID,
                                    const std::string& alarmField) {
     std::ostringstream oss;
-    oss << protocolID << "-" << frameID << "-" << alarmField;
+    oss << deviceName << "-" << frameID << "-" << alarmField;
     return oss.str();
 }
 
@@ -66,10 +66,10 @@ void EventManager::processAddEvent(const Event& event) {
     writeLog(stored, "发生");
 }
 
-void EventManager::processClearEvent(int protocolID, int frameID,
+void EventManager::processClearEvent(const std::string& deviceName, int frameID,
                                       const std::string& alarmField) {
     QMutexLocker locker(&mutex_);
-    EventId id = makeEventId(protocolID, frameID, alarmField);
+    EventId id = makeEventId(deviceName, frameID, alarmField);
 
     std::unordered_map<EventId, Event>::iterator it = activeEvents_.find(id);
     if (it == activeEvents_.end()) {
@@ -135,12 +135,13 @@ size_t EventManager::activeCount() const {
     return activeEvents_.size();
 }
 
-std::vector<Event> EventManager::findEventsByProtocolID(int protocolID) const {
+std::vector<Event> EventManager::findEventsByDeviceName(
+        const std::string& deviceName) const {
     QMutexLocker locker(&mutex_);
     std::vector<Event> result;
     for (std::unordered_map<EventId, Event>::const_iterator it = activeEvents_.begin();
          it != activeEvents_.end(); ++it) {
-        if (it->second.protocolID == protocolID) {
+        if (it->second.deviceName == deviceName) {
             result.push_back(it->second);
         }
     }
@@ -157,7 +158,7 @@ void EventManager::notifyFrontend(const Event& event, bool isActive) {
     std::ostringstream json;
     json << "{"
          << "\"type\":\"" << alarmType << "\","
-         << "\"protocolID\":" << event.protocolID << ","
+         << "\"deviceName\":\"" << event.deviceName << "\","
          << "\"frameID\":" << event.frameID << ","
          << "\"alarmField\":\"" << event.alarmField << "\","
          << "\"description\":\"" << event.description << "\","
@@ -174,7 +175,7 @@ void EventManager::notifyFrontend(const Event& event, bool isActive) {
 
 void EventManager::writeLog(const Event& event, const char* action) {
     std::ostringstream msg;
-    msg << "下位机" << event.protocolID
+    msg << event.deviceName
         << "-" << event.description
         << "-" << action;
     LogWriter::write(msg.str());

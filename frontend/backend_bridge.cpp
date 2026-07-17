@@ -30,7 +30,7 @@ void BackendBridge::triggerAlarm(const QString& id, bool isActive) {
     QStringList parts = id.split('-');
     if (parts.size() != 3) return;
     ExternalAPI::instance().triggerAlarm(
-        parts[0].toInt(), parts[1].toInt(),
+        parts[0].toStdString(), parts[1].toInt(),
         parts[2].toStdString(), isActive);
 }
 
