@@ -88,3 +88,32 @@ void BackendBridge::clearShield(const QString& id) {
 int BackendBridge::shieldCount() const {
     return ConfigManager::instance().getShieldCount();
 }
+
+void BackendBridge::disableAction(const QString& eventId,
+                                   const QString& actionName, bool isActive) {
+    LinkageEngine::instance().disableAction(
+        eventId.toStdString(), actionName.toStdString(), isActive);
+}
+
+void BackendBridge::enableAction(const QString& eventId,
+                                  const QString& actionName, bool isActive) {
+    LinkageEngine::instance().enableAction(
+        eventId.toStdString(), actionName.toStdString(), isActive);
+}
+
+QVector<BackendBridge::ActionEntry> BackendBridge::getEventActions(
+        const QString& eventId) const {
+    QVector<ActionEntry> result;
+    std::vector<LinkageEngine::ActionInfo> infos =
+        LinkageEngine::instance().getEventActions(eventId.toStdString());
+    for (std::vector<LinkageEngine::ActionInfo>::const_iterator it = infos.begin();
+         it != infos.end(); ++it) {
+        ActionEntry e;
+        e.name           = QString::fromStdString(it->name);
+        e.displayName    = QString::fromStdString(it->displayName);
+        e.disabledActive = it->disabledActive;
+        e.disabledClear  = it->disabledClear;
+        result.append(e);
+    }
+    return result;
+}

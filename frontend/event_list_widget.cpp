@@ -54,6 +54,7 @@ void EventListWidget::refresh() {
 
     for (int i = 0; i < events.size(); ++i) {
         const BackendBridge::EventEntry& e = events[i];
+        if (e.shielded) continue;  // 被屏蔽的事件不显示
         int row = ui.eventTable->rowCount();
         ui.eventTable->insertRow(row);
 

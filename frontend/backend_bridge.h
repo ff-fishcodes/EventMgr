@@ -51,6 +51,19 @@ public:
     void clearShield(const QString& id);
     int  shieldCount() const;
 
+    // 联动禁用（isActive=true 产生侧, false 消除侧）
+    void disableAction(const QString& eventId, const QString& actionName, bool isActive);
+    void enableAction(const QString& eventId, const QString& actionName, bool isActive);
+
+    // 查询事件联动能力及禁用状态
+    struct ActionEntry {
+        QString name;
+        QString displayName;
+        bool    disabledActive;
+        bool    disabledClear;
+    };
+    QVector<ActionEntry> getEventActions(const QString& eventId) const;
+
 signals:
     void eventsChanged();
     void linkageAction(const QString& eventId, bool isActive);
