@@ -1,4 +1,5 @@
 QT += core testlib
+QT -= gui
 TEMPLATE = app
 CONFIG += console c++11 testcase
 TARGET = test_linkage_engine
