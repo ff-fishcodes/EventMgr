@@ -50,9 +50,9 @@ Expected: output shows `EventId` as `std::string`, device ID construction, pure-
 Immediately after the H1, add:
 
 ```markdown
-> 文档状态：当前有效、唯一需求与验收基线  
-> 代码复核日期：2026-07-22  
-> 适用范围：当前仓库代码；历史需求和历史需规仅用于追溯
+> - 文档状态：当前有效、唯一需求与验收基线
+> - 代码复核日期：2026-07-22
+> - 适用范围：当前仓库代码；历史需求和历史需规仅用于追溯
 ```
 
 Change the opening paragraph date from “2026-07-21 工作树” to “截至 2026-07-22 的当前代码”，and link the alignment design:
@@ -132,7 +132,7 @@ Do not change any existing full-width Markdown heading or original sentence belo
 Insert after the H1 in `2026-06-26-software-requirements-spec.md`:
 
 ```markdown
-> **版本状态：历史归档，已被[当前需求基线](./2026-07-21-software-requirements-baseline.md)取代。**  
+> **版本状态：历史归档，已被[当前需求基线](./2026-07-21-software-requirements-baseline.md)取代。**
 > 本文保留 v1.1 的原始评审内容，仅用于版本演进回溯，不得作为当前开发或验收依据。当前代码已由 `protocolID` 改为 `deviceName`；设备事件 ID 为 `deviceName-frameID-alarmField`，关联设备系统事件 ID 为 `deviceName-0-eventName`，纯系统事件 ID 为 `eventName`。当前后端直接依赖 Qt5Core，前后端通过同进程桥接运行，其他行为与限制以当前基线为准。
 ```
 
@@ -143,7 +143,7 @@ Keep the original `版本：v1.1` and `状态：已评审` lines as historical m
 Insert after the H1 in `2026-07-06-software-requirements-spec.md`:
 
 ```markdown
-> **版本状态：历史归档，已被[当前需求基线](./2026-07-21-software-requirements-baseline.md)取代。**  
+> **版本状态：历史归档，已被[当前需求基线](./2026-07-21-software-requirements-baseline.md)取代。**
 > 本文保留 v2.2 的原始内容，仅用于版本演进回溯，不得作为当前开发或验收依据。当前代码的设备事件 ID 为 `deviceName-frameID-alarmField`，关联设备系统事件 ID 为 `deviceName-0-eventName`，纯系统事件 ID 为 `eventName`；当前仅实现同进程桥接，Socket 分离仍是桩边界；后端直接依赖 Qt5Core。其他行为与限制以当前基线为准。
 ```
 
