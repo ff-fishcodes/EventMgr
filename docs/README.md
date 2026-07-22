@@ -21,7 +21,7 @@
 | 文档 | 状态 | 说明 |
 |------|------|------|
 | [文档基线执行计划](superpowers/plans/2026-07-21-documentation-baseline.md) | 已执行（文档任务） | 本轮需求、设计、图表、讨论记录和导航完善任务的执行依据；不表示风险台账中的代码整改已经实施 |
-| [需求文档按代码对齐计划](superpowers/plans/2026-07-22-requirements-code-alignment.md) | 执行中 | 需求基线复核、历史状态声明、讨论记录、导航和一致性验证步骤 |
+| [需求文档按代码对齐计划](superpowers/plans/2026-07-22-requirements-code-alignment.md) | 已执行（文档任务） | 需求基线复核、历史状态声明、讨论记录、导航和一致性验证步骤 |
 
 ## 推荐阅读顺序
 

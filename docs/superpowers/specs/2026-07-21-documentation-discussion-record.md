@@ -329,3 +329,11 @@ test "$backend_demo_exit" -eq 0
 ### 12.3 实施依据
 
 修订设计见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)，执行步骤见[需求文档按代码对齐计划](../plans/2026-07-22-requirements-code-alignment.md)。最终验证结果在本节后续小节补录。
+
+### 12.4 验证结果
+
+本次文档一致性验证以 pre-final HEAD `b51b547` 为提交基线，并覆盖其后的未提交文档补录。相对本轮起点 `29b4a3f`，变更文件为 `README.md`、`doc/requirment.md`、`docs/README.md`、`docs/superpowers/specs/2026-06-17-requirement-discussion-record.md`、`docs/superpowers/specs/2026-06-26-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-06-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-21-detailed-design.md`、`docs/superpowers/specs/2026-07-21-documentation-discussion-record.md` 和 `docs/superpowers/specs/2026-07-21-software-requirements-baseline.md`。已提交差异和包含本补录的工作树差异均通过 `git diff --check`；非 `README.md`、`doc/`、`docs/` 路径的变更数为 0，确认本轮没有源码修改。
+
+使用 Node.js 标准库对 12 个纳入范围的 Markdown 文件检查相对链接和锚点，共解析 257 个相对链接，其中 144 个带 fragment；缺失目标或锚点为 0，重复显式锚点为 0。当前需求基线共提取 73 个唯一 `CB-` 需求编号，详细设计中 73/73 均可找到。EventId 术语扫描确认当前定义统一采用设备事件 `deviceName-frameID-alarmField`、关联设备系统事件 `deviceName-0-eventName`、纯系统事件 `eventName`；`protocolID` 和“系统-0-eventName”只保留在历史差异或风险说明中，不作为当前格式。原始需求“非当前基线”、两版历史需规“历史归档”和当前需求“唯一需求与验收基线”的四项权威标记检查均通过。
+
+本结果只证明文档一致性，不是代码问题修复或目标平台验收。`backend/event_types.h` 的旧注释仍与纯系统事件当前格式不一致；连字符分隔和 `atoi()` 解析风险仍未整改；飞腾 FT/2000、银河麒麟 V10 与项目声明的 Qt 5.15.10 未重新验证；已知默认 GUI 同线程通知死锁未复测。本任务没有重新构建后端或前端，不能把起始门禁或历史构建结果冒充最终构建证据；本轮也未执行 `git push`。
