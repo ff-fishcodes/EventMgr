@@ -1,8 +1,8 @@
 # 事件管理中心当前需求基线
 
-> 文档状态：当前有效、唯一需求与验收基线
-> 代码复核日期：2026-07-22
-> 适用范围：当前仓库代码；历史需求和历史需规仅用于追溯
+> - 文档状态：当前有效、唯一需求与验收基线
+> - 代码复核日期：2026-07-22
+> - 适用范围：当前仓库代码；历史需求和历史需规仅用于追溯
 
 ## 1. 文档说明
 
@@ -36,7 +36,7 @@
 - **CB-ID-003**：系统事件名必须存在于集中定义表；未知名称只写警告并忽略。证据：`backend/system_events.cpp`、`backend/external_api.cpp`。
 - **CB-ID-004**：事件等级数值为 `1=Emergency`、`2=Serious`、`3=General`、`4=Info`；状态为 `Active` 或 `Cleared`，来源为 `Device` 或 `System`。证据：`backend/event_types.h`。
 - **CB-ID-005**：设备报警目录未命中时仍创建事件，使用 `Info` 原始等级、报警字段名作为描述，并写目录缺失警告。证据：`backend/external_api.cpp` 中 `triggerAlarm()`。
-- **CB-ID-006**：当前 ID 拼接不转义 `-`。`ExternalAPI::clearEvent(eventId)` 按前两个 `-` 切分，并用 `std::atoi()` 解析中段；因此字段含 `-` 或帧号文本非法时存在解析歧义，调用方不得把这些输入视为已支持。证据：`backend/external_api.cpp`、`frontend/backend_bridge.cpp`。
+- **CB-ID-006**：当前 ID 拼接不转义连字符。后端 `ExternalAPI::clearEvent(eventId)` 使用前两个连字符作为分隔符：`deviceName` 含连字符会使分段位置错位，第二个连字符之后的 `alarmField` 或关联设备系统事件 `eventName` 余串则完整保留；中段非法文本经 `std::atoi()` 转换为 `0`。前端 `BackendBridge::triggerAlarm(eventId, ...)` 按全部连字符拆分并要求恰好三段，因此任一组成字段额外含连字符的模拟 ID 都会被拒绝。证据：`backend/external_api.cpp`、`frontend/backend_bridge.cpp`。
 
 ## 5. 功能需求
 
@@ -145,14 +145,14 @@
 
 | 验收主题 | 需求编号 | 可判定检查 | 主要证据 |
 |---|---|---|---|
-| 基线文档职责 | CB-DOC-001, CB-DOC-002, CB-DOC-003, CB-DOC-004 | 检查结论均有编号和证据；讨论理由链接到计划记录；搜索无无依据性能承诺 | 本文、`docs/superpowers/plans/2026-07-21-documentation-baseline.md` |
+| 基线文档职责 | CB-DOC-001, CB-DOC-002, CB-DOC-003, CB-DOC-004 | 检查结论均有编号和证据，讨论理由链接到计划记录，且无无依据性能承诺；确认本文件是当前有效且唯一的需求与验收基线，`doc/requirment.md` 标为非当前原始输入，2026-06-26/2026-07-06 需求规格标为历史归档，`docs/README.md` 明确当前需求基线是唯一有效的需求与验收文档并给出历史失效标签 | 本文、`doc/requirment.md`、`docs/README.md`、`docs/superpowers/specs/2026-06-26-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-06-software-requirements-spec.md`、`docs/superpowers/plans/2026-07-21-documentation-baseline.md` |
 | 模块边界 | CB-SCOPE-001, CB-SCOPE-002 | 从门面到事件、配置、联动逐项追踪；确认接收/解析未实现且目录来自桩 | `backend/external_api.cpp`、`backend/stubs/alarm_catalog.cpp` |
 | 部署与桩边界 | CB-SCOPE-003, CB-SCOPE-004 | 启动控件核对直接调用；检查 Socket、命令、蜂鸣器、日志桩没有真实外部集成 | `frontend/backend_bridge.cpp`、`backend/event_mgr_module.cpp`、`backend/stubs/socket_server.cpp`、`backend/stubs/cmd_sender.cpp`、`backend/stubs/buzzer_control.cpp`、`backend/stubs/log_writer.cpp` |
 | 项目构建声明 | CB-ENV-001 | 检查 C++11、Qt 模块和 qmake/make 入口 | `frontend/frontend.pro` |
 | 后端 Qt 依赖 | CB-ENV-002, CB-NFR-004 | 搜索后端 Qt 类型和 QtConcurrent 调用；最小后端仅按 Qt5Core 编译，完整工程按 `.pro` 构建 | `backend/event_manager.h`、`backend/event_manager.cpp`、`backend/config_manager.h`、`backend/config_manager.cpp`、`backend/linkage_engine.h`、`backend/linkage_engine.cpp`、`frontend/frontend.pro` |
 | 本机环境记录 | CB-ENV-003 | 运行条目所列三个命令并逐项比对版本；检查计划记录链接 | `frontend/frontend.pro`、`docs/superpowers/plans/2026-07-21-documentation-baseline.md` |
 | 目标平台边界 | CB-ENV-004 | 检查原始平台要求，并确认仓库无目标平台验证产物 | `doc/requirment.md` |
-| 事件 ID | CB-ID-001, CB-ID-002, CB-ID-006 | 分别构造设备、纯系统和关联设备系统事件并比对精确 ID；检查含 `-` 字段和非法帧号文本的解析边界 | `backend/external_api.cpp`、`backend/event_manager.cpp`、`frontend/backend_bridge.cpp` |
+| 事件 ID | CB-ID-001, CB-ID-002, CB-ID-006 | 分别构造设备、纯系统和关联设备系统事件并比对精确 ID；验证设备名含连字符时后端分段错位，后缀含连字符时后端保留第二个连字符后的余串，非法中段经 `std::atoi()` 转为 `0`，前端模拟入口对拆分后多于三段的 ID 拒绝处理 | `backend/external_api.cpp`、`backend/event_manager.cpp`、`frontend/backend_bridge.cpp` |
 | 系统名与类型 | CB-ID-003, CB-ID-004 | 枚举定义和值；用未知系统名验证只写警告 | `backend/event_types.h`、`backend/system_events.cpp`、`backend/external_api.cpp` |
 | 目录缺失回退 | CB-ID-005, CB-FUN-001 | 触发目录内外设备事件，比对等级、描述和警告 | `backend/external_api.cpp` |
 | 设备加入幂等 | CB-FUN-002 | 同 ID 连续加入两次，核对时间戳和副作用只发生一次 | `backend/event_manager.cpp` |
