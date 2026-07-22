@@ -5,9 +5,73 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPainter>
+#include <QResizeEvent>
 #include <QSignalBlocker>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
+
+namespace {
+
+// Keeps the complete action identity available while painting a width-safe label.
+class ElidedLabel : public QLabel {
+public:
+    explicit ElidedLabel(const QString& fullText,
+                         const QString& accessibleRole,
+                         QWidget* parent = nullptr)
+        : QLabel(fullText, parent),
+          fullText_(fullText),
+          displayText_() {
+        setToolTip(fullText_);
+        setAccessibleName(fullText_);
+        setAccessibleDescription(
+            QString::fromUtf8("%1：%2").arg(accessibleRole, fullText_));
+        updateDisplayText();
+    }
+
+    ~ElidedLabel() override {}
+
+    QSize minimumSizeHint() const override {
+        QSize hint = QLabel::minimumSizeHint();
+        hint.setWidth(0);
+        return hint;
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setFont(font());
+        painter.setPen(palette().color(foregroundRole()));
+        painter.drawText(contentsRect(), alignment(), displayText_);
+    }
+
+    void resizeEvent(QResizeEvent* event) override {
+        QLabel::resizeEvent(event);
+        updateDisplayText();
+    }
+
+    void changeEvent(QEvent* event) override {
+        QLabel::changeEvent(event);
+        if (event->type() == QEvent::FontChange ||
+            event->type() == QEvent::StyleChange) {
+            updateDisplayText();
+        }
+    }
+
+private:
+    void updateDisplayText() {
+        displayText_ = fontMetrics().elidedText(
+            fullText_, Qt::ElideRight, qMax(0, contentsRect().width()));
+        setProperty("displayText", displayText_);
+        update();
+    }
+
+    QString fullText_;
+    QString displayText_;
+};
+
+} // namespace
 
 AlarmCatalogWidget::PendingEventConfig::PendingEventConfig()
     : originalDowngraded(false),
@@ -263,12 +327,12 @@ void AlarmCatalogWidget::renderActionTable(
         QVBoxLayout* nameLayout = new QVBoxLayout(nameCell);
         nameLayout->setContentsMargins(6, 2, 4, 2);
         nameLayout->setSpacing(0);
-        QLabel* displayLabel = new QLabel(action.displayName, nameCell);
-        displayLabel->setToolTip(action.displayName);
+        QLabel* displayLabel = new ElidedLabel(
+            action.displayName, QString::fromUtf8("动作显示名称"), nameCell);
         displayLabel->setStyleSheet(
             QString::fromLatin1("font-weight:600; color:#263238;"));
-        QLabel* internalLabel = new QLabel(action.name, nameCell);
-        internalLabel->setToolTip(action.name);
+        QLabel* internalLabel = new ElidedLabel(
+            action.name, QString::fromUtf8("动作内部名称"), nameCell);
         internalLabel->setStyleSheet(
             QString::fromLatin1("font-size:11px; color:#607d8b;"));
         nameLayout->addWidget(displayLabel);

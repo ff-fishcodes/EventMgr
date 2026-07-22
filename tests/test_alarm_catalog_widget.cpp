@@ -1,16 +1,17 @@
 #include <QtTest>
+#include <QtMath>
 
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFontMetrics>
+#include <QHash>
 #include <QImage>
 #include <QLabel>
 #include <QLayout>
 #include <QPixmap>
 #include <QPushButton>
 #include <QQueue>
-#include <QSet>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -89,6 +90,19 @@ int actionRow(QTableWidget* table,
     }
     QTest::qFail(qPrintable(QString("Action '%1' (%2) was not found")
                                .arg(actionName, displayName)),
+                 __FILE__, __LINE__);
+    return -1;
+}
+
+int actionRowByInternalName(QTableWidget* table, const QString& actionName) {
+    for (int row = 0; row < table->rowCount(); ++row) {
+        QWidget* cell = table->cellWidget(row, 0);
+        if (cell && cell->property("actionName").toString() == actionName) {
+            return row;
+        }
+    }
+    QTest::qFail(qPrintable(QString::fromLatin1("Internal action '%1' was not found")
+                               .arg(actionName)),
                  __FILE__, __LINE__);
     return -1;
 }
@@ -203,9 +217,9 @@ void verifyVisibleActionCellsStayInViewport(QTableWidget* table) {
             QWidget* cell = table->cellWidget(row, column);
             if (!cell || !cell->isVisible()) continue;
             const QRect cellRect = widgetRectIn(cell, table->viewport());
+            if (!cellRect.intersects(viewportRect)) continue;
             QVERIFY2(cellRect.left() >= viewportRect.left() &&
-                         cellRect.right() <= viewportRect.right() &&
-                         cellRect.intersects(viewportRect),
+                         cellRect.right() <= viewportRect.right(),
                      qPrintable(QString::fromLatin1(
                          "Action cell %1,%2 is outside viewport: %3,%4 %5x%6 vs %7x%8")
                          .arg(row).arg(column).arg(cellRect.x()).arg(cellRect.y())
@@ -215,36 +229,91 @@ void verifyVisibleActionCellsStayInViewport(QTableWidget* table) {
     }
 }
 
-void verifyOverflowingActionTextIsAccessible(QTableWidget* table) {
+void verifyActionTextRendering(QTableWidget* table, bool expectOverflow) {
+    bool foundOverflow = false;
+    bool foundUnchangedText = false;
     for (int row = 0; row < table->rowCount(); ++row) {
         QWidget* cell = table->cellWidget(row, 0);
         if (!cell) continue;
         const QList<QLabel*> labels = cell->findChildren<QLabel*>();
         for (int i = 0; i < labels.size(); ++i) {
             QLabel* label = labels[i];
-            const int textWidth = QFontMetrics(label->font())
-                .boundingRect(label->text()).width();
-            if (textWidth <= label->contentsRect().width()) continue;
-            QCOMPARE(label->toolTip(), label->text());
-        }
-    }
-}
+            const QString fullText = label->text();
+            const QString displayText = label->property("displayText").toString();
+            const QFontMetrics metrics(label->font());
+            const bool overflows = metrics.horizontalAdvance(fullText) >
+                label->contentsRect().width();
 
-void verifyMeaningfulImage(const QImage& image) {
-    QVERIFY(!image.isNull());
-    QSet<QRgb> colors;
-    int nonBlankSamples = 0;
-    for (int y = 0; y < image.height(); y += 3) {
-        for (int x = 0; x < image.width(); x += 3) {
-            const QRgb pixel = image.pixel(x, y);
-            colors.insert(pixel);
-            if (qRed(pixel) < 248 || qGreen(pixel) < 248 || qBlue(pixel) < 248) {
-                ++nonBlankSamples;
+            QVERIFY2(!displayText.isEmpty(), "Action label lacks rendered text contract");
+            QVERIFY(metrics.horizontalAdvance(displayText) <=
+                    label->contentsRect().width());
+            QCOMPARE(label->toolTip(), fullText);
+            QCOMPARE(label->accessibleName(), fullText);
+            QVERIFY(label->accessibleDescription().contains(fullText));
+
+            if (overflows) {
+                foundOverflow = true;
+                QVERIFY(displayText != fullText);
+                QVERIFY2(displayText.contains(QChar(0x2026)) ||
+                             displayText.contains(QString::fromLatin1("...")),
+                         "Overflowing action text must use explicit right elision");
+            } else {
+                foundUnchangedText = true;
+                QCOMPARE(displayText, fullText);
             }
         }
     }
-    QVERIFY2(colors.size() > 32, "Screenshot lacks meaningful color variation");
-    QVERIFY2(nonBlankSamples > 500, "Screenshot contains too few nonblank pixels");
+    QCOMPARE(foundOverflow, expectOverflow);
+    QVERIFY2(foundUnchangedText, "Fixture must cover non-overflowing action text");
+}
+
+QRect logicalRectToPixels(const QRect& logicalRect, qreal devicePixelRatio) {
+    const int left = qFloor(logicalRect.left() * devicePixelRatio);
+    const int top = qFloor(logicalRect.top() * devicePixelRatio);
+    const int right = qCeil((logicalRect.right() + 1) * devicePixelRatio) - 1;
+    const int bottom = qCeil((logicalRect.bottom() + 1) * devicePixelRatio) - 1;
+    return QRect(QPoint(left, top), QPoint(right, bottom));
+}
+
+void verifyRegionHasRenderedContent(const QImage& image,
+                                    const QRect& logicalRect,
+                                    qreal devicePixelRatio,
+                                    const char* description) {
+    const QRect pixelRect = logicalRectToPixels(logicalRect, devicePixelRatio)
+        .intersected(image.rect());
+    QVERIFY2(!pixelRect.isEmpty(), description);
+
+    QHash<QRgb, int> frequencies;
+    int sampleCount = 0;
+    int darkest = 255;
+    int lightest = 0;
+    const int sampleStep = qMax(1, qRound(devicePixelRatio * 2.0));
+    for (int y = pixelRect.top(); y <= pixelRect.bottom(); y += sampleStep) {
+        for (int x = pixelRect.left(); x <= pixelRect.right(); x += sampleStep) {
+            const QRgb pixel = image.pixel(x, y);
+            ++frequencies[pixel];
+            ++sampleCount;
+            const int luminance = qGray(pixel);
+            darkest = qMin(darkest, luminance);
+            lightest = qMax(lightest, luminance);
+        }
+    }
+
+    int dominantCount = 0;
+    for (QHash<QRgb, int>::const_iterator it = frequencies.constBegin();
+         it != frequencies.constEnd(); ++it) {
+        dominantCount = qMax(dominantCount, it.value());
+    }
+    const int foregroundSamples = sampleCount - dominantCount;
+    QVERIFY2(frequencies.size() >= 4,
+             qPrintable(QString::fromLatin1("%1 has insufficient pixel variation")
+                 .arg(QString::fromLatin1(description))));
+    QVERIFY2(lightest - darkest >= 20,
+             qPrintable(QString::fromLatin1("%1 lacks foreground contrast")
+                 .arg(QString::fromLatin1(description))));
+    QVERIFY2(foregroundSamples >= qMax(6, sampleCount / 1000),
+             qPrintable(QString::fromLatin1("%1 appears blank")
+                 .arg(QString::fromLatin1(description))));
 }
 
 } // namespace
@@ -1050,8 +1119,9 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
         "boiler_reset_secondary", duplicateDisplayName.toStdString(), []() {});
     LinkageEngine::instance().configureEvent(
         kBoilerEvent.toStdString(),
-        {"cooler_fan", longInternalName, "boiler_reset_primary"},
-        {"buzzer_alert", "boiler_reset_secondary"});
+        {"boiler_reset_primary", "boiler_reset_secondary", longInternalName,
+         "cooler_fan"},
+        {"buzzer_alert"});
 
     AlarmCatalogWidget widget(&bridge_);
     QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
@@ -1071,17 +1141,20 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
     selectCatalogRow(catalog, kBoilerEvent);
     processPendingLayouts(&widget);
     QCOMPARE(selected->text(), kBoilerEvent);
-    const int primaryRow = actionRow(
-        active, "boiler_reset_primary", duplicateDisplayName);
-    const int secondaryRow = actionRow(
-        clear, "boiler_reset_secondary", duplicateDisplayName);
+    const int primaryRow = actionRowByInternalName(
+        active, QString::fromLatin1("boiler_reset_primary"));
+    const int secondaryRow = actionRowByInternalName(
+        active, QString::fromLatin1("boiler_reset_secondary"));
+    QVERIFY(primaryRow != secondaryRow);
     QVERIFY2(actionIdentityIsVisible(active, primaryRow,
                                      "boiler_reset_primary", duplicateDisplayName),
              "Duplicate display names need visible active-phase internal names");
-    QVERIFY2(actionIdentityIsVisible(clear, secondaryRow,
+    QVERIFY2(actionIdentityIsVisible(active, secondaryRow,
                                      "boiler_reset_secondary", duplicateDisplayName),
-             "Duplicate display names need visible clear-phase internal names");
-    QVERIFY(actionRow(active, longInternalName.c_str(), longDisplayName) >= 0);
+             "Duplicate display names need visible active-phase internal names");
+    const int longActionRow = actionRowByInternalName(
+        active, QString::fromStdString(longInternalName));
+    QVERIFY(longActionRow >= 0);
     QVERIFY(actionRow(active, "cooler_stop", QString::fromUtf8("关冷却塔")) >= 0);
     QVERIFY(actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")) >= 0);
     QVERIFY(actionRow(clear, "buzzer_alert", QString::fromUtf8("蜂鸣器")) >= 0);
@@ -1104,10 +1177,23 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
     for (const CaptureSize& size : sizes) {
         widget.resize(size.width, size.height);
         widget.show();
+        active->scrollToItem(active->item(longActionRow, 0),
+                             QAbstractItemView::PositionAtBottom);
         processPendingLayouts(&widget);
 
         QCOMPARE(widget.size(), QSize(size.width, size.height));
         QCOMPARE(selected->text(), kBoilerEvent);
+        QCOMPARE(activeTitle->text(), QString::fromUtf8("事件产生时"));
+        QCOMPARE(clearTitle->text(), QString::fromUtf8("事件消除时"));
+        QVERIFY(!status->text().isEmpty());
+        QCOMPARE(refresh->text(), QString::fromUtf8("刷新"));
+        QCOMPARE(apply->text(), QString::fromUtf8("应用配置"));
+        QVERIFY(actionIdentityIsVisible(active, primaryRow,
+                                        "boiler_reset_primary",
+                                        duplicateDisplayName));
+        QVERIFY(actionIdentityIsVisible(active, secondaryRow,
+                                        "boiler_reset_secondary",
+                                        duplicateDisplayName));
         verifyContainedAndVisible(splitter, &widget, "configuration splitter");
         verifyContainedAndVisible(activeTitle, &widget, "active phase title");
         verifyContainedAndVisible(active, &widget, "active phase table");
@@ -1136,14 +1222,30 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
         verifyButtonTextFits(apply);
         verifyVisibleActionCellsStayInViewport(active);
         verifyVisibleActionCellsStayInViewport(clear);
-        verifyOverflowingActionTextIsAccessible(active);
-        verifyOverflowingActionTextIsAccessible(clear);
+        verifyActionTextRendering(active, size.width == 760);
+        verifyActionTextRendering(clear, false);
 
         const QPixmap pixmap = widget.grab();
-        QCOMPARE(pixmap.size(), QSize(size.width, size.height));
+        QVERIFY(!pixmap.isNull());
+        const qreal devicePixelRatio = pixmap.devicePixelRatio();
+        QVERIFY(devicePixelRatio > 0.0);
+        const QSize expectedPixelSize(qRound(size.width * devicePixelRatio),
+                                      qRound(size.height * devicePixelRatio));
+        QCOMPARE(pixmap.size(), expectedPixelSize);
         const QImage image = pixmap.toImage();
-        QCOMPARE(image.size(), QSize(size.width, size.height));
-        verifyMeaningfulImage(image);
+        QVERIFY(!image.isNull());
+        QCOMPARE(image.size(), pixmap.size());
+        verifyRegionHasRenderedContent(image, widgetRectIn(catalog, &widget),
+                                       devicePixelRatio, "catalog table");
+        verifyRegionHasRenderedContent(image, activeRect, devicePixelRatio,
+                                       "active action table");
+        verifyRegionHasRenderedContent(image, clearRect, devicePixelRatio,
+                                       "clear action table");
+        const QRect bottomControlsRect = refreshRect.united(applyRect)
+            .united(statusRect);
+        verifyRegionHasRenderedContent(image, bottomControlsRect,
+                                       devicePixelRatio,
+                                       "bottom controls and status");
 
         if (!screenshotDir.isEmpty()) {
             const QString path = QDir(QString::fromLocal8Bit(screenshotDir))
