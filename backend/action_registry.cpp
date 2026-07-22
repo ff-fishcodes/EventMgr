@@ -50,9 +50,11 @@ void ActionRegistry::setup(LinkageEngine& engine) {
         {});
 
     // ============================================================
-    // 等级默认：所有 Emergency 事件 → 冷却塔停机
+    // 等级默认：所有 Emergency 事件在产生阶段停止冷却塔；
+    // 当前示例在消除阶段没有默认动作。
     // ============================================================
 
     engine.setLevelDefault(EventLevel::Emergency,
-        {"cooler_stop"});
+        {"cooler_stop"},
+        std::vector<std::string>());
 }

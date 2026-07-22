@@ -10,6 +10,23 @@ BackendBridge::BackendBridge(QObject* parent) : QObject(parent) {}
 
 BackendBridge::~BackendBridge() {}
 
+BackendBridge::ActionEntry::ActionEntry()
+    : enabled(false) {}
+
+BackendBridge::ActionEntry::ActionEntry(
+        const QString& actionName,
+        const QString& actionDisplayName,
+        bool actionEnabled)
+    : name(actionName),
+      displayName(actionDisplayName),
+      enabled(actionEnabled) {}
+
+BackendBridge::ActionEntry::~ActionEntry() {}
+
+BackendBridge::EventActionGroups::EventActionGroups() {}
+
+BackendBridge::EventActionGroups::~EventActionGroups() {}
+
 void BackendBridge::initialize() {
     // 一键启动后端模块（若已由 EventMgrModule::init() 启动则跳过）
     EventMgrModule::init();
@@ -101,19 +118,27 @@ void BackendBridge::enableAction(const QString& eventId,
         eventId.toStdString(), actionName.toStdString(), isActive);
 }
 
-QVector<BackendBridge::ActionEntry> BackendBridge::getEventActions(
-        const QString& eventId) const {
-    QVector<ActionEntry> result;
-    std::vector<LinkageEngine::ActionInfo> infos =
-        LinkageEngine::instance().getEventActions(eventId.toStdString());
-    for (std::vector<LinkageEngine::ActionInfo>::const_iterator it = infos.begin();
-         it != infos.end(); ++it) {
-        ActionEntry e;
-        e.name           = QString::fromStdString(it->name);
-        e.displayName    = QString::fromStdString(it->displayName);
-        e.disabledActive = it->disabledActive;
-        e.disabledClear  = it->disabledClear;
-        result.append(e);
+BackendBridge::EventActionGroups BackendBridge::getEventActionGroups(
+        const QString& eventId, int originalLevel) const {
+    const LinkageEngine::EventActionGroups backendGroups =
+        LinkageEngine::instance().getEventActionGroups(
+            eventId.toStdString(), static_cast<EventLevel>(originalLevel));
+    EventActionGroups result;
+    for (std::vector<LinkageEngine::ActionInfo>::const_iterator it =
+             backendGroups.activeActions.begin();
+         it != backendGroups.activeActions.end(); ++it) {
+        result.activeActions.append(ActionEntry(
+            QString::fromStdString(it->name),
+            QString::fromStdString(it->displayName),
+            it->enabled));
+    }
+    for (std::vector<LinkageEngine::ActionInfo>::const_iterator it =
+             backendGroups.clearActions.begin();
+         it != backendGroups.clearActions.end(); ++it) {
+        result.clearActions.append(ActionEntry(
+            QString::fromStdString(it->name),
+            QString::fromStdString(it->displayName),
+            it->enabled));
     }
     return result;
 }
