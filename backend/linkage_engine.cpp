@@ -3,6 +3,7 @@
 #include <QMutexLocker>
 #include <QRunnable>
 #include <exception>
+#include <utility>
 
 LinkageEngine* LinkageEngine::instance_ = NULL;
 
