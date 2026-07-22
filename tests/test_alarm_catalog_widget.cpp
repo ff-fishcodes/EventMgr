@@ -307,6 +307,12 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
+    QLabel* selected = requiredChild<QLabel>(&widget, "selectedEventLabel");
+    QVERIFY(selected);
+    QLabel* status = requiredChild<QLabel>(&widget, "statusLabel");
+    QVERIFY(status);
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QVERIFY(apply);
     selectCatalogRow(catalog, kBoilerEvent);
     const int row = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, row, 3), true);
@@ -323,6 +329,10 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
     QVERIFY(ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
     QVERIFY(LinkageEngine::instance().isActionDisabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
+    const int reloadedRow = catalogRow(catalog, kBoilerEvent);
+    QCOMPARE(catalog->currentRow(), reloadedRow);
+    QCOMPARE(catalog->item(reloadedRow, 0)->text(), kBoilerEvent);
+    QVERIFY(selected->text().contains(kBoilerEvent));
     QCOMPARE(checked(tableCheckBox(
                  catalog, catalogRow(catalog, kBoilerEvent), 3)), true);
     QCOMPARE(checked(tableCheckBox(
@@ -331,6 +341,8 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
                  active,
                  actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1)),
              false);
+    QVERIFY(!apply->isEnabled());
+    QCOMPARE(status->text(), QString::fromUtf8("配置已应用"));
 }
 
 void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
@@ -341,6 +353,12 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
+    QLabel* selected = requiredChild<QLabel>(&widget, "selectedEventLabel");
+    QVERIFY(selected);
+    QLabel* status = requiredChild<QLabel>(&widget, "statusLabel");
+    QVERIFY(status);
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QVERIFY(apply);
     selectCatalogRow(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
@@ -358,17 +376,23 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
     QVERIFY(ConfigManager::instance().isShielded(kOtherEvent.toStdString()));
     QVERIFY(!LinkageEngine::instance().isActionDisabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
+    const int reloadedRow = catalogRow(catalog, kBoilerEvent);
+    QCOMPARE(catalog->currentRow(), reloadedRow);
+    QCOMPARE(catalog->item(reloadedRow, 0)->text(), kBoilerEvent);
+    QVERIFY(selected->text().contains(kBoilerEvent));
     QCOMPARE(checked(tableCheckBox(
                  catalog, catalogRow(catalog, kBoilerEvent), 3)), false);
     QCOMPARE(checked(tableCheckBox(
                  catalog, catalogRow(catalog, kBoilerEvent), 4)), false);
     QCOMPARE(checked(tableCheckBox(
                  catalog, catalogRow(catalog, kOtherEvent), 4)), true);
-    selectCatalogRow(catalog, kBoilerEvent);
     QCOMPARE(checked(tableCheckBox(
                  active,
                  actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1)),
              true);
+    QVERIFY(!apply->isEnabled());
+    QCOMPARE(status->text(),
+             QString::fromUtf8("共 8 个报警定义，当前屏蔽 1 个"));
 }
 
 void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
