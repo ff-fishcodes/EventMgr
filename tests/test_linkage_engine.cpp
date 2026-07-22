@@ -7,8 +7,11 @@
 #include <QProcessEnvironment>
 #include <QSemaphore>
 #include <QStringList>
+#include <QUuid>
 
+#include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -83,6 +86,73 @@ bool hasDuplicateNames(const Actions& actions) {
     return false;
 }
 
+struct ChildProcessResult {
+    bool started;
+    bool completedWithinTimeout;
+    bool reaped;
+    QProcess::ExitStatus exitStatus;
+    int exitCode;
+    QByteArray output;
+    QString error;
+
+    ChildProcessResult()
+        : started(false),
+          completedWithinTimeout(false),
+          reaped(false),
+          exitStatus(QProcess::NormalExit),
+          exitCode(-1),
+          output(),
+          error() {}
+    ~ChildProcessResult() {}
+};
+
+bool isIsolatedChild(const char* markerName, const char* testFunction) {
+    const QByteArray expectedPrefix = QByteArray(testFunction) + ':';
+    return qgetenv(markerName).startsWith(expectedPrefix);
+}
+
+ChildProcessResult runIsolatedTest(const char* markerName,
+                                   const char* testFunction,
+                                   int timeoutMs) {
+    ChildProcessResult result;
+    QProcess child;
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    const QByteArray markerValue = QByteArray(testFunction) + ':'
+        + QUuid::createUuid().toByteArray(QUuid::WithoutBraces);
+    environment.insert(QString::fromLatin1(markerName),
+                       QString::fromLatin1(markerValue));
+    child.setProcessEnvironment(environment);
+    child.setProcessChannelMode(QProcess::MergedChannels);
+    child.start(QCoreApplication::applicationFilePath(),
+                QStringList() << QString::fromLatin1(testFunction));
+
+    result.started = child.waitForStarted(2000);
+    result.error = child.errorString();
+    if (!result.started) return result;
+
+    result.completedWithinTimeout = child.waitForFinished(timeoutMs);
+    if (result.completedWithinTimeout) {
+        result.reaped = true;
+    } else {
+        child.kill();
+        result.reaped = child.waitForFinished(2000);
+    }
+    result.output = child.readAll();
+    result.exitStatus = child.exitStatus();
+    result.exitCode = child.exitCode();
+    return result;
+}
+
+struct RegisterActionOnDestruction {
+    LinkageEngine* engine;
+
+    explicit RegisterActionOnDestruction(LinkageEngine* linkageEngine)
+        : engine(linkageEngine) {}
+    ~RegisterActionOnDestruction() {
+        engine->registerAction("from_destructor", "registered from destructor", []() {});
+    }
+};
+
 } // namespace
 
 class LinkageEngineTest : public QObject {
@@ -100,6 +170,10 @@ private slots:
     void isolatesDisableStateByEventActionAndPhase();
     void suppressesInfoActionsAndFallback();
     void invokesFallbackWithoutHoldingConfigurationLock();
+    void releasesReplacedCallbacksWithoutHoldingConfigurationLock();
+    void containsThrowingActionCallbacks();
+    void containsThrowingFallbackCallbacks();
+    void keepsEmptyRegisteredActionsQueryableAndSkipsExecution();
     void supportsConcurrentConfigurationQueryAndExecution();
 
 private:
@@ -312,38 +386,131 @@ void LinkageEngineTest::invokesFallbackWithoutHoldingConfigurationLock() {
     engine_.setFallback(LinkageEngine::FallbackCallback());
 }
 
-void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
-    const char childFlag[] = "EVENTMGR_CONCURRENCY_CHILD";
-    if (qEnvironmentVariableIntValue(childFlag) != 1) {
-        QProcess child;
-        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-        environment.insert(childFlag, "1");
-        child.setProcessEnvironment(environment);
-        child.setProcessChannelMode(QProcess::MergedChannels);
-        child.start(QCoreApplication::applicationFilePath(),
-                    QStringList() << "supportsConcurrentConfigurationQueryAndExecution");
-        QVERIFY2(child.waitForStarted(2000), qPrintable(child.errorString()));
+void LinkageEngineTest::releasesReplacedCallbacksWithoutHoldingConfigurationLock() {
+    const char marker[] = "EVENTMGR_REENTRANT_DESTRUCTOR_CHILD";
+    const char testFunction[] =
+        "releasesReplacedCallbacksWithoutHoldingConfigurationLock";
+    if (!isIsolatedChild(marker, testFunction)) {
+        const ChildProcessResult child = runIsolatedTest(marker, testFunction, 3000);
+        QVERIFY2(child.started, qPrintable(child.error));
+        QVERIFY2(child.reaped, "timed-out callback destructor child could not be reaped");
+        QVERIFY2(child.completedWithinTimeout,
+                 "callback capture destructor re-entry deadlocked configuration");
+        QVERIFY2(child.exitStatus == QProcess::NormalExit, child.output.constData());
+        QVERIFY2(child.exitCode == 0, child.output.constData());
+        return;
+    }
 
-        const bool finished = child.waitForFinished(20000);
-        if (!finished) {
-            child.kill();
-            child.waitForFinished(2000);
-        }
-        const QByteArray childOutput = child.readAll();
-        QVERIFY2(finished, "concurrent linkage child exceeded 20 seconds; possible deadlock");
-        QVERIFY2(child.exitStatus() == QProcess::NormalExit, childOutput.constData());
-        QVERIFY2(child.exitCode() == 0, childOutput.constData());
+    std::shared_ptr<RegisterActionOnDestruction> captured(
+        new RegisterActionOnDestruction(&engine_));
+    engine_.registerAction("replace_me", "replace me", [captured]() {});
+    captured.reset();
+
+    engine_.registerAction("replace_me", "replacement", []() {});
+    engine_.configureEvent("E-1-A", {"from_destructor"}, {});
+    const LinkageEngine::EventActionGroups groups =
+        engine_.getEventActionGroups("E-1-A", EventLevel::Emergency);
+    QCOMPARE(displayNames(groups.activeActions),
+             QStringList() << "registered from destructor");
+}
+
+void LinkageEngineTest::containsThrowingActionCallbacks() {
+    const char marker[] = "EVENTMGR_THROWING_ACTION_CHILD";
+    const char testFunction[] = "containsThrowingActionCallbacks";
+    if (!isIsolatedChild(marker, testFunction)) {
+        const ChildProcessResult child = runIsolatedTest(marker, testFunction, 3000);
+        QVERIFY2(child.started, qPrintable(child.error));
+        QVERIFY2(child.reaped, "throwing action child could not be reaped");
+        QVERIFY2(child.completedWithinTimeout, "throwing action child timed out");
+        QVERIFY2(child.exitStatus == QProcess::NormalExit, child.output.constData());
+        QVERIFY2(child.exitCode == 0, child.output.constData());
+        return;
+    }
+
+    QAtomicInt invocationCount(0);
+    engine_.registerAction("throws", "throws", [&invocationCount]() {
+        invocationCount.ref();
+        throw std::runtime_error("action failure");
+    });
+    engine_.configureEvent("E-1-A", {"throws"}, {});
+    engine_.executeActive(makeEvent("E-1-A", EventLevel::Emergency));
+    engine_.clearAll();
+    QCOMPARE(invocationCount.loadAcquire(), 1);
+}
+
+void LinkageEngineTest::containsThrowingFallbackCallbacks() {
+    const char marker[] = "EVENTMGR_THROWING_FALLBACK_CHILD";
+    const char testFunction[] = "containsThrowingFallbackCallbacks";
+    if (!isIsolatedChild(marker, testFunction)) {
+        const ChildProcessResult child = runIsolatedTest(marker, testFunction, 3000);
+        QVERIFY2(child.started, qPrintable(child.error));
+        QVERIFY2(child.reaped, "throwing fallback child could not be reaped");
+        QVERIFY2(child.completedWithinTimeout, "throwing fallback child timed out");
+        QVERIFY2(child.exitStatus == QProcess::NormalExit, child.output.constData());
+        QVERIFY2(child.exitCode == 0, child.output.constData());
+        return;
+    }
+
+    QAtomicInt invocationCount(0);
+    engine_.setFallback([&invocationCount](const std::string&, bool) {
+        invocationCount.ref();
+        throw std::runtime_error("fallback failure");
+    });
+    engine_.executeActive(makeEvent("E-1-A", EventLevel::Emergency));
+    QCOMPARE(invocationCount.loadAcquire(), 1);
+}
+
+void LinkageEngineTest::keepsEmptyRegisteredActionsQueryableAndSkipsExecution() {
+    const char marker[] = "EVENTMGR_EMPTY_ACTION_CHILD";
+    const char testFunction[] =
+        "keepsEmptyRegisteredActionsQueryableAndSkipsExecution";
+    if (!isIsolatedChild(marker, testFunction)) {
+        const ChildProcessResult child = runIsolatedTest(marker, testFunction, 3000);
+        QVERIFY2(child.started, qPrintable(child.error));
+        QVERIFY2(child.reaped, "empty action child could not be reaped");
+        QVERIFY2(child.completedWithinTimeout, "empty action child timed out");
+        QVERIFY2(child.exitStatus == QProcess::NormalExit, child.output.constData());
+        QVERIFY2(child.exitCode == 0, child.output.constData());
+        return;
+    }
+
+    engine_.registerAction("empty", "empty display", LinkageEngine::ActionCallback());
+    engine_.configureEvent("E-1-A", {"empty"}, {});
+    const LinkageEngine::EventActionGroups groups =
+        engine_.getEventActionGroups("E-1-A", EventLevel::Emergency);
+    QCOMPARE(names(groups.activeActions), QStringList() << "empty");
+    QCOMPARE(displayNames(groups.activeActions), QStringList() << "empty display");
+
+    engine_.executeActive(makeEvent("E-1-A", EventLevel::Emergency));
+    engine_.clearAll();
+}
+
+void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
+    const char marker[] = "EVENTMGR_CONCURRENCY_PRESSURE_CHILD";
+    const char testFunction[] = "supportsConcurrentConfigurationQueryAndExecution";
+    if (!isIsolatedChild(marker, testFunction)) {
+        const ChildProcessResult child = runIsolatedTest(marker, testFunction, 20000);
+        QVERIFY2(child.started, qPrintable(child.error));
+        QVERIFY2(child.reaped, "timed-out concurrency child could not be reaped");
+        QVERIFY2(child.completedWithinTimeout,
+                 "concurrent linkage child exceeded 20 seconds; possible deadlock");
+        QVERIFY2(child.exitStatus == QProcess::NormalExit, child.output.constData());
+        QVERIFY2(child.exitCode == 0, child.output.constData());
         return;
     }
 
     const int iterationCount = 500;
     const int workerCount = 3;
     QAtomicInt duplicateDetected(0);
+    QAtomicInt actionInvocationCount(0);
+    QAtomicInt fallbackInvocationCount(0);
     QSemaphore startGate;
     std::mutex diagnosticMutex;
     std::string diagnostic;
 
-    engine_.registerAction("shared", "shared", []() {});
+    engine_.registerAction("shared", "shared", [&actionInvocationCount]() {
+        actionInvocationCount.ref();
+    });
     engine_.registerAction("writer_a", "writer a", []() {});
     engine_.registerAction("writer_b", "writer b", []() {});
 
@@ -357,9 +524,16 @@ void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
         }
     };
 
-    std::thread writer([this, &startGate, iterationCount]() {
+    std::thread writer([this, &startGate, &actionInvocationCount,
+                        &fallbackInvocationCount, iterationCount]() {
         startGate.acquire();
         for (int i = 0; i < iterationCount; ++i) {
+            engine_.registerAction("shared", "shared", [&actionInvocationCount]() {
+                actionInvocationCount.ref();
+            });
+            engine_.setFallback([&fallbackInvocationCount](const std::string&, bool) {
+                fallbackInvocationCount.ref();
+            });
             if ((i % 2) == 0) {
                 engine_.configureEvent("E-1-A",
                                        {"shared", "writer_a", "shared"},
@@ -402,8 +576,11 @@ void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
     writer.join();
     firstReader.join();
     secondReader.join();
+    engine_.clearAll();
 
     QVERIFY2(duplicateDetected.loadAcquire() == 0, diagnostic.c_str());
+    QVERIFY(actionInvocationCount.loadAcquire() > 0);
+    QVERIFY(fallbackInvocationCount.loadAcquire() > 0);
 }
 
 QTEST_GUILESS_MAIN(LinkageEngineTest)

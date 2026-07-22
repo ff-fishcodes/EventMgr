@@ -1,6 +1,8 @@
 #include "linkage_engine.h"
+#include <QDebug>
 #include <QMutexLocker>
 #include <QRunnable>
+#include <exception>
 
 LinkageEngine* LinkageEngine::instance_ = NULL;
 
@@ -19,14 +21,38 @@ void appendUnique(const std::vector<std::string>& source,
 }
 
 class ActionTask : public QRunnable {
-    LinkageEngine::ActionCallback callback_;
+    std::shared_ptr<const LinkageEngine::ActionCallback> callback_;
 public:
-    explicit ActionTask(LinkageEngine::ActionCallback cb) : callback_(cb) {
+    explicit ActionTask(
+            const std::shared_ptr<const LinkageEngine::ActionCallback>& callback)
+        : callback_(callback) {
         setAutoDelete(true);
     }
     ~ActionTask() {}
-    void run() override { callback_(); }
+    void run() override {
+        try {
+            (*callback_)();
+        } catch (const std::exception& error) {
+            qWarning("Linkage action callback threw an exception: %s", error.what());
+        } catch (...) {
+            qWarning("Linkage action callback threw an unknown exception");
+        }
+    }
 };
+
+void invokeFallback(
+        const std::shared_ptr<const LinkageEngine::FallbackCallback>& fallback,
+        const std::string& eventId,
+        bool isActive) {
+    if (!fallback) return;
+    try {
+        (*fallback)(eventId, isActive);
+    } catch (const std::exception& error) {
+        qWarning("Linkage fallback callback threw an exception: %s", error.what());
+    } catch (...) {
+        qWarning("Linkage fallback callback threw an unknown exception");
+    }
+}
 
 } // namespace
 
@@ -76,14 +102,36 @@ std::string LinkageEngine::makeDisableKey(const EventId& id, const std::string& 
 void LinkageEngine::registerAction(const std::string& name,
                                     const std::string& displayName,
                                     ActionCallback callback) {
-    QMutexLocker locker(&configMutex_);
-    actionTable_[name] = callback;
-    displayNames_[name] = displayName;
+    std::shared_ptr<const ActionCallback> replacement;
+    if (callback) {
+        replacement.reset(new ActionCallback(std::move(callback)));
+    }
+    std::shared_ptr<const ActionCallback> replaced;
+    {
+        QMutexLocker locker(&configMutex_);
+        displayNames_[name] = displayName;
+        std::unordered_map<std::string,
+            std::shared_ptr<const ActionCallback> >::iterator found =
+                actionTable_.find(name);
+        if (found != actionTable_.end()) {
+            replaced = std::move(found->second);
+            if (replacement) found->second = replacement;
+            else             actionTable_.erase(found);
+        } else if (replacement) {
+            actionTable_.insert(std::make_pair(name, replacement));
+        }
+    }
 }
 
 void LinkageEngine::setFallback(FallbackCallback callback) {
-    QMutexLocker locker(&configMutex_);
-    fallback_ = callback;
+    std::shared_ptr<const FallbackCallback> replacement;
+    if (callback) {
+        replacement.reset(new FallbackCallback(std::move(callback)));
+    }
+    {
+        QMutexLocker locker(&configMutex_);
+        fallback_.swap(replacement);
+    }
 }
 
 void LinkageEngine::configureEvent(
@@ -166,43 +214,48 @@ std::vector<std::string> LinkageEngine::effectiveConfiguredNamesLocked(
 void LinkageEngine::executeActive(const Event& event) {
     if (event.originalLevel == EventLevel::Info) return;
     std::vector<std::string> names;
-    FallbackCallback fallback;
+    std::shared_ptr<const FallbackCallback> fallback;
     {
         QMutexLocker locker(&configMutex_);
+        // 第一线性化点：同一配置版本的动作名称和 fallback 句柄。
         names = resolveNamesLocked(event, true);
         fallback = fallback_;
     }
     executeNames(names, event.id, true);
-    if (fallback) fallback(event.id, true);
+    invokeFallback(fallback, event.id, true);
 }
 
 void LinkageEngine::executeCleared(const Event& event) {
     if (event.originalLevel == EventLevel::Info) return;
     std::vector<std::string> names;
-    FallbackCallback fallback;
+    std::shared_ptr<const FallbackCallback> fallback;
     {
         QMutexLocker locker(&configMutex_);
+        // 第一线性化点：同一配置版本的动作名称和 fallback 句柄。
         names = resolveNamesLocked(event, false);
         fallback = fallback_;
     }
     executeNames(names, event.id, false);
-    if (fallback) fallback(event.id, false);
+    invokeFallback(fallback, event.id, false);
 }
 
 void LinkageEngine::executeNames(const std::vector<std::string>& names,
                                   const EventId& eventId, bool isActive) {
-    std::vector<ActionCallback> callbacks;
+    std::vector<std::shared_ptr<const ActionCallback> > callbacks;
     {
         QMutexLocker locker(&configMutex_);
+        // 第二线性化点：按当前禁用状态快照名称对应的不可变回调句柄。
         for (std::vector<std::string>::const_iterator it = names.begin();
              it != names.end(); ++it) {
             if (isActionDisabledLocked(eventId, *it, isActive)) continue;
-            std::unordered_map<std::string, ActionCallback>::const_iterator
-                found = actionTable_.find(*it);
+            std::unordered_map<std::string,
+                std::shared_ptr<const ActionCallback> >::const_iterator found =
+                    actionTable_.find(*it);
             if (found != actionTable_.end()) callbacks.push_back(found->second);
         }
     }
-    for (std::vector<ActionCallback>::const_iterator it = callbacks.begin();
+    for (std::vector<std::shared_ptr<const ActionCallback> >::const_iterator
+             it = callbacks.begin();
          it != callbacks.end(); ++it) {
         linkagePool_.start(new ActionTask(*it));
     }
@@ -281,14 +334,19 @@ LinkageEngine::EventActionGroups LinkageEngine::getEventActionGroups(
 // ============================================================
 
 void LinkageEngine::clearAll() {
-    // 调用者须先停止新的执行；本函数仅用于关闭/测试，不是完整关闭协议。
+    // 调用者须停止新 execute 调用并等待在途 execute 返回；本函数仅用于关闭/测试。
     linkagePool_.waitForDone();
-    QMutexLocker locker(&configMutex_);
-    actionTable_.clear();
-    displayNames_.clear();
-    eventConfig_.clear();
-    levelDefaults_.clear();
-    fallback_ = FallbackCallback();
-    disabledActive_.clear();
-    disabledClear_.clear();
+    std::unordered_map<std::string,
+        std::shared_ptr<const ActionCallback> > callbacks;
+    std::shared_ptr<const FallbackCallback> fallback;
+    {
+        QMutexLocker locker(&configMutex_);
+        callbacks.swap(actionTable_);
+        fallback.swap(fallback_);
+        displayNames_.clear();
+        eventConfig_.clear();
+        levelDefaults_.clear();
+        disabledActive_.clear();
+        disabledClear_.clear();
+    }
 }

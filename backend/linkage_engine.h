@@ -3,6 +3,7 @@
 
 #include "event_types.h"
 #include <functional>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -112,12 +113,14 @@ private:
     // 联动动作禁用键: "eventId|actionName"
     static std::string makeDisableKey(const EventId& id, const std::string& name);
 
-    std::unordered_map<std::string, ActionCallback> actionTable_;
+    // 不可变回调句柄允许锁内安全快照，回调对象本身只在锁外销毁。
+    std::unordered_map<std::string,
+        std::shared_ptr<const ActionCallback> > actionTable_;
     std::unordered_map<std::string, std::string> displayNames_;   // name → 中文名
     std::unordered_map<EventId,
         std::pair<std::vector<std::string>, std::vector<std::string> > > eventConfig_;
     std::unordered_map<int, LevelActionConfig> levelDefaults_;
-    FallbackCallback fallback_;
+    std::shared_ptr<const FallbackCallback> fallback_;
 
     // 产生侧/消除侧禁用的联动动作（不持久化，重启清空）
     std::unordered_set<std::string> disabledActive_;
