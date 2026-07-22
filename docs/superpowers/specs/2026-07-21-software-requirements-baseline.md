@@ -1,12 +1,19 @@
 # 事件管理中心当前需求基线
 
+> 文档状态：当前有效、唯一需求与验收基线
+> 代码复核日期：2026-07-22
+> 适用范围：当前仓库代码；历史需求和历史需规仅用于追溯
+
 ## 1. 文档说明
 
-本文档以 2026-07-21 工作树中的可验证代码为行为基线，描述当前实现能力、约束和已知限制，不把历史需求或设计意图写成已实现能力。`doc/requirment.md` 仅作为原始需求来源；与代码不一致时，以本基线的“当前实现”和“原始需求差异”为准。
+本文档以截至 2026-07-22 的当前代码中的可验证行为为基线，描述当前实现能力、约束和已知限制，不把历史需求或设计意图写成已实现能力。`doc/requirment.md` 仅作为原始需求来源；与代码不一致时，以本基线的“当前实现”和“原始需求差异”为准。
+
+本次文档分层和历史保留规则见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)。
 
 - **CB-DOC-001**：本基线保存已经确认的需求结论及其源码证据链接，不承担讨论对话、方案比较或决策理由的过程记录。上述过程已由完成并审查的 [2026-07-21 文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md) 承载，当前交付与验证状态见该记录的[完成后状态与最终验证](./2026-07-21-documentation-discussion-record.md#11-2026-07-22-完成后状态与最终验证)。证据：`docs/superpowers/plans/2026-07-21-documentation-baseline.md`、`docs/superpowers/specs/2026-07-21-documentation-baseline-design.md`、`docs/superpowers/specs/2026-07-21-documentation-discussion-record.md`。
 - **CB-DOC-002**：每项基线要求使用唯一的 `CB-` 编号，第 9 章给出可判定的验收方法和具体证据路径。证据：本文第 4、5、6、7、9 章。
 - **CB-DOC-003**：本基线不承诺代码未体现的性能、可靠性或持久化能力，也不从局部加锁推导所有组件线程安全。证据：`backend/event_manager.cpp`、`backend/config_manager.cpp`、`backend/linkage_engine.cpp`。
+- **CB-DOC-004**：本文件是当前唯一有效的需求与验收基线。`doc/requirment.md`、2026-06-26 和 2026-07-06 需求规格保留为原始输入或历史版本；其中与当前代码不一致的接口、依赖、标识和行为不得用于当前开发或验收。证据：`doc/requirment.md`、`docs/superpowers/specs/2026-06-26-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-06-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-22-requirements-code-alignment-design.md`。
 
 ## 2. 系统范围
 
@@ -29,6 +36,7 @@
 - **CB-ID-003**：系统事件名必须存在于集中定义表；未知名称只写警告并忽略。证据：`backend/system_events.cpp`、`backend/external_api.cpp`。
 - **CB-ID-004**：事件等级数值为 `1=Emergency`、`2=Serious`、`3=General`、`4=Info`；状态为 `Active` 或 `Cleared`，来源为 `Device` 或 `System`。证据：`backend/event_types.h`。
 - **CB-ID-005**：设备报警目录未命中时仍创建事件，使用 `Info` 原始等级、报警字段名作为描述，并写目录缺失警告。证据：`backend/external_api.cpp` 中 `triggerAlarm()`。
+- **CB-ID-006**：当前 ID 拼接不转义 `-`。`ExternalAPI::clearEvent(eventId)` 按前两个 `-` 切分，并用 `std::atoi()` 解析中段；因此字段含 `-` 或帧号文本非法时存在解析歧义，调用方不得把这些输入视为已支持。证据：`backend/external_api.cpp`、`frontend/backend_bridge.cpp`。
 
 ## 5. 功能需求
 
@@ -110,7 +118,7 @@
 ## 7. 当前限制
 
 - **CB-LIM-001（事件 ID 分隔符）**：设备 ID 创建和解析依赖 `-`。后端清除按前两个连字符切分，前端模拟入口要求恰好三段；设备名或字段名含连字符时语义不一致，帧号转换也缺少严格格式校验。证据：`backend/external_api.cpp`、`frontend/backend_bridge.cpp`。
-- **CB-LIM-002（纯系统 ID 注释）**：部分注释称纯系统 ID 为“系统-0-eventName”，实际代码使用 `eventName`；集成以 **CB-ID-002** 为准。证据：`backend/event_types.h`、`backend/external_api.cpp`。
+- **CB-LIM-002（系统 ID 注释）**：部分注释把 ID 写为“系统-0-eventName”，但纯系统事件的实际代码使用 `eventName`；集成以 **CB-ID-002** 为准。证据：`backend/event_types.h`、`backend/external_api.cpp`。
 - **CB-LIM-003（查找指针生命周期）**：`findEvent()` 返回容器元素裸指针后立即释放互斥锁。`unordered_map` 重哈希本身不会使元素指针或引用失效；实际失效条件包括该元素被 `erase`、容器被销毁。锁释放后若其他线程同时访问或修改相关对象，调用方还存在未同步并发访问风险。证据：`backend/event_manager.cpp` 中 `findEvent()`、`processClearEvent()`，以及 C++11 `std::unordered_map` 元素失效规则。
 - **CB-LIM-004（联动并发保护）**：`LinkageEngine` 的动作表、事件配置、等级默认、fallback 和禁用集合没有显式互斥保护；配置/查询与执行跨线程并发时存在数据竞争风险。证据：`backend/linkage_engine.h`、`backend/linkage_engine.cpp`。
 - **CB-LIM-005（模块生命周期）**：`EventMgrModule` 使用 `new` 创建全局单例，无关闭、释放流程或使用前空值保护，资源持续到进程退出。证据：`backend/event_mgr_module.h`、`backend/event_mgr_module.cpp`。
@@ -137,14 +145,14 @@
 
 | 验收主题 | 需求编号 | 可判定检查 | 主要证据 |
 |---|---|---|---|
-| 基线文档职责 | CB-DOC-001, CB-DOC-002, CB-DOC-003 | 检查结论均有编号和证据；讨论理由链接到计划记录；搜索无无依据性能承诺 | 本文、`docs/superpowers/plans/2026-07-21-documentation-baseline.md` |
+| 基线文档职责 | CB-DOC-001, CB-DOC-002, CB-DOC-003, CB-DOC-004 | 检查结论均有编号和证据；讨论理由链接到计划记录；搜索无无依据性能承诺 | 本文、`docs/superpowers/plans/2026-07-21-documentation-baseline.md` |
 | 模块边界 | CB-SCOPE-001, CB-SCOPE-002 | 从门面到事件、配置、联动逐项追踪；确认接收/解析未实现且目录来自桩 | `backend/external_api.cpp`、`backend/stubs/alarm_catalog.cpp` |
 | 部署与桩边界 | CB-SCOPE-003, CB-SCOPE-004 | 启动控件核对直接调用；检查 Socket、命令、蜂鸣器、日志桩没有真实外部集成 | `frontend/backend_bridge.cpp`、`backend/event_mgr_module.cpp`、`backend/stubs/socket_server.cpp`、`backend/stubs/cmd_sender.cpp`、`backend/stubs/buzzer_control.cpp`、`backend/stubs/log_writer.cpp` |
 | 项目构建声明 | CB-ENV-001 | 检查 C++11、Qt 模块和 qmake/make 入口 | `frontend/frontend.pro` |
 | 后端 Qt 依赖 | CB-ENV-002, CB-NFR-004 | 搜索后端 Qt 类型和 QtConcurrent 调用；最小后端仅按 Qt5Core 编译，完整工程按 `.pro` 构建 | `backend/event_manager.h`、`backend/event_manager.cpp`、`backend/config_manager.h`、`backend/config_manager.cpp`、`backend/linkage_engine.h`、`backend/linkage_engine.cpp`、`frontend/frontend.pro` |
 | 本机环境记录 | CB-ENV-003 | 运行条目所列三个命令并逐项比对版本；检查计划记录链接 | `frontend/frontend.pro`、`docs/superpowers/plans/2026-07-21-documentation-baseline.md` |
 | 目标平台边界 | CB-ENV-004 | 检查原始平台要求，并确认仓库无目标平台验证产物 | `doc/requirment.md` |
-| 事件 ID | CB-ID-001, CB-ID-002 | 分别构造设备、纯系统和关联设备系统事件并比对精确 ID | `backend/external_api.cpp`、`backend/event_manager.cpp` |
+| 事件 ID | CB-ID-001, CB-ID-002, CB-ID-006 | 分别构造设备、纯系统和关联设备系统事件并比对精确 ID；检查含 `-` 字段和非法帧号文本的解析边界 | `backend/external_api.cpp`、`backend/event_manager.cpp`、`frontend/backend_bridge.cpp` |
 | 系统名与类型 | CB-ID-003, CB-ID-004 | 枚举定义和值；用未知系统名验证只写警告 | `backend/event_types.h`、`backend/system_events.cpp`、`backend/external_api.cpp` |
 | 目录缺失回退 | CB-ID-005, CB-FUN-001 | 触发目录内外设备事件，比对等级、描述和警告 | `backend/external_api.cpp` |
 | 设备加入幂等 | CB-FUN-002 | 同 ID 连续加入两次，核对时间戳和副作用只发生一次 | `backend/event_manager.cpp` |

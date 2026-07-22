@@ -787,13 +787,13 @@ make
 |---|---|
 | [讨论记录状态与评审结论](#revision-review) | `CB-DOC-001` |
 | [编号追踪与验收方法](#requirements-trace) | `CB-DOC-002` |
-| [证据边界](#doc-metadata) | `CB-DOC-003` |
+| [证据边界](#doc-metadata) | `CB-DOC-003`、`CB-DOC-004` |
 | [系统总体职责](#design-overview) | `CB-SCOPE-001` |
 | [真实配置范围边界](#stub-alarm-catalog) | `CB-SCOPE-002` |
 | [当前同进程桥接形态](#frontend-backend-bridge) | `CB-SCOPE-003` |
 | [外部桩范围](#stub-modules) | `CB-SCOPE-004` |
 | [依赖、版本、目标平台与构建](#build-integration) | `CB-ENV-001`、`CB-ENV-002`、`CB-ENV-003`、`CB-ENV-004`、`CB-NFR-003`、`CB-NFR-004` |
-| [设备/系统标识与解析](#id-format) | `CB-ID-001`、`CB-ID-002`、`CB-LIM-001`、`CB-LIM-002` |
+| [设备/系统标识与解析](#id-format) | `CB-ID-001`、`CB-ID-002`、`CB-ID-006`、`CB-LIM-001`、`CB-LIM-002` |
 | [系统事件注册表](#module-system-events) | `CB-ID-003` |
 | [等级、状态和来源类型](#data-types) | `CB-ID-004` |
 | [设备目录未命中回退](#module-external-api) | `CB-ID-005` |
