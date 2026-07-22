@@ -264,9 +264,11 @@ void AlarmCatalogWidget::renderActionTable(
         nameLayout->setContentsMargins(6, 2, 4, 2);
         nameLayout->setSpacing(0);
         QLabel* displayLabel = new QLabel(action.displayName, nameCell);
+        displayLabel->setToolTip(action.displayName);
         displayLabel->setStyleSheet(
             QString::fromLatin1("font-weight:600; color:#263238;"));
         QLabel* internalLabel = new QLabel(action.name, nameCell);
+        internalLabel->setToolTip(action.name);
         internalLabel->setStyleSheet(
             QString::fromLatin1("font-size:11px; color:#607d8b;"));
         nameLayout->addWidget(displayLabel);

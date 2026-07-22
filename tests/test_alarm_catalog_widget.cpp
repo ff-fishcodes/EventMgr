@@ -2,9 +2,15 @@
 
 #include <QCheckBox>
 #include <QCoreApplication>
+#include <QDir>
+#include <QFontMetrics>
+#include <QImage>
 #include <QLabel>
+#include <QLayout>
+#include <QPixmap>
 #include <QPushButton>
 #include <QQueue>
+#include <QSet>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -157,6 +163,90 @@ bool actionIdentityIsVisible(QTableWidget* table, int row,
     return visibleText.contains(actionName) && visibleText.contains(displayName);
 }
 
+QRect widgetRectIn(const QWidget* child, const QWidget* ancestor) {
+    return QRect(child->mapTo(ancestor, QPoint(0, 0)), child->size());
+}
+
+void processPendingLayouts(QWidget* widget) {
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::PolishRequest);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    if (widget->layout()) widget->layout()->activate();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+}
+
+void verifyContainedAndVisible(QWidget* child, QWidget* container,
+                               const char* description) {
+    QVERIFY2(child->isVisible(), description);
+    const QRect childRect = widgetRectIn(child, container);
+    QVERIFY2(container->rect().contains(childRect),
+             qPrintable(QString::fromLatin1("%1 is outside the widget: %2,%3 %4x%5")
+                 .arg(QString::fromLatin1(description))
+                 .arg(childRect.x()).arg(childRect.y())
+                 .arg(childRect.width()).arg(childRect.height())));
+}
+
+void verifyButtonTextFits(QPushButton* button) {
+    const int textWidth = QFontMetrics(button->font())
+        .boundingRect(button->text()).width();
+    QVERIFY2(textWidth <= button->contentsRect().width(),
+             qPrintable(QString::fromLatin1("Button text '%1' needs %2px but has %3px")
+                 .arg(button->text()).arg(textWidth)
+                 .arg(button->contentsRect().width())));
+}
+
+void verifyVisibleActionCellsStayInViewport(QTableWidget* table) {
+    const QRect viewportRect = table->viewport()->rect();
+    for (int row = 0; row < table->rowCount(); ++row) {
+        for (int column = 0; column < table->columnCount(); ++column) {
+            QWidget* cell = table->cellWidget(row, column);
+            if (!cell || !cell->isVisible()) continue;
+            const QRect cellRect = widgetRectIn(cell, table->viewport());
+            QVERIFY2(cellRect.left() >= viewportRect.left() &&
+                         cellRect.right() <= viewportRect.right() &&
+                         cellRect.intersects(viewportRect),
+                     qPrintable(QString::fromLatin1(
+                         "Action cell %1,%2 is outside viewport: %3,%4 %5x%6 vs %7x%8")
+                         .arg(row).arg(column).arg(cellRect.x()).arg(cellRect.y())
+                         .arg(cellRect.width()).arg(cellRect.height())
+                         .arg(viewportRect.width()).arg(viewportRect.height())));
+        }
+    }
+}
+
+void verifyOverflowingActionTextIsAccessible(QTableWidget* table) {
+    for (int row = 0; row < table->rowCount(); ++row) {
+        QWidget* cell = table->cellWidget(row, 0);
+        if (!cell) continue;
+        const QList<QLabel*> labels = cell->findChildren<QLabel*>();
+        for (int i = 0; i < labels.size(); ++i) {
+            QLabel* label = labels[i];
+            const int textWidth = QFontMetrics(label->font())
+                .boundingRect(label->text()).width();
+            if (textWidth <= label->contentsRect().width()) continue;
+            QCOMPARE(label->toolTip(), label->text());
+        }
+    }
+}
+
+void verifyMeaningfulImage(const QImage& image) {
+    QVERIFY(!image.isNull());
+    QSet<QRgb> colors;
+    int nonBlankSamples = 0;
+    for (int y = 0; y < image.height(); y += 3) {
+        for (int x = 0; x < image.width(); x += 3) {
+            const QRgb pixel = image.pixel(x, y);
+            colors.insert(pixel);
+            if (qRed(pixel) < 248 || qGreen(pixel) < 248 || qBlue(pixel) < 248) {
+                ++nonBlankSamples;
+            }
+        }
+    }
+    QVERIFY2(colors.size() > 32, "Screenshot lacks meaningful color variation");
+    QVERIFY2(nonBlankSamples > 500, "Screenshot contains too few nonblank pixels");
+}
+
 } // namespace
 
 class TestableAlarmCatalogWidget : public AlarmCatalogWidget {
@@ -254,6 +344,7 @@ private slots:
     void reentrantReloadDoesNotPromptTwice();
     void eventMgrCleanTabSwitchTracksCurrentIndex();
     void eventMgrTabGuardRestoresThenAllowsTransition();
+    void capturesResponsiveScreenshots();
 
 private:
     BackendBridge bridge_;
@@ -942,6 +1033,125 @@ void AlarmCatalogWidgetTest::eventMgrTabGuardRestoresThenAllowsTransition() {
     QCOMPARE(tabs->currentIndex(), 0);
     QCOMPARE(widget.guardCallCount(), 2);
     QCOMPARE(changedSpy.count(), 2);
+}
+
+void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
+    const std::string longInternalName =
+        "boiler_emergency_cooling_override_with_confirmed_remote_interlock";
+    const QString longDisplayName = QString::fromUtf8(
+        "锅炉紧急冷却联锁远程确认与运行状态复核动作");
+    const QString duplicateDisplayName = QString::fromUtf8("现场联锁复位");
+
+    LinkageEngine::instance().registerAction(
+        longInternalName, longDisplayName.toStdString(), []() {});
+    LinkageEngine::instance().registerAction(
+        "boiler_reset_primary", duplicateDisplayName.toStdString(), []() {});
+    LinkageEngine::instance().registerAction(
+        "boiler_reset_secondary", duplicateDisplayName.toStdString(), []() {});
+    LinkageEngine::instance().configureEvent(
+        kBoilerEvent.toStdString(),
+        {"cooler_fan", longInternalName, "boiler_reset_primary"},
+        {"buzzer_alert", "boiler_reset_secondary"});
+
+    AlarmCatalogWidget widget(&bridge_);
+    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
+    QTableWidget* clear = requiredChild<QTableWidget>(&widget, "clearActionTable");
+    QLabel* selected = requiredChild<QLabel>(&widget, "selectedEventLabel");
+    QLabel* activeTitle = requiredChild<QLabel>(&widget, "activeActionTitleLabel");
+    QLabel* clearTitle = requiredChild<QLabel>(&widget, "clearActionTitleLabel");
+    QLabel* status = requiredChild<QLabel>(&widget, "statusLabel");
+    QPushButton* refresh = requiredChild<QPushButton>(&widget, "refreshBtn");
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QSplitter* splitter = requiredChild<QSplitter>(&widget, "configSplitter");
+
+    widget.resize(1280, 760);
+    widget.show();
+    processPendingLayouts(&widget);
+    selectCatalogRow(catalog, kBoilerEvent);
+    processPendingLayouts(&widget);
+    QCOMPARE(selected->text(), kBoilerEvent);
+    const int primaryRow = actionRow(
+        active, "boiler_reset_primary", duplicateDisplayName);
+    const int secondaryRow = actionRow(
+        clear, "boiler_reset_secondary", duplicateDisplayName);
+    QVERIFY2(actionIdentityIsVisible(active, primaryRow,
+                                     "boiler_reset_primary", duplicateDisplayName),
+             "Duplicate display names need visible active-phase internal names");
+    QVERIFY2(actionIdentityIsVisible(clear, secondaryRow,
+                                     "boiler_reset_secondary", duplicateDisplayName),
+             "Duplicate display names need visible clear-phase internal names");
+    QVERIFY(actionRow(active, longInternalName.c_str(), longDisplayName) >= 0);
+    QVERIFY(actionRow(active, "cooler_stop", QString::fromUtf8("关冷却塔")) >= 0);
+    QVERIFY(actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")) >= 0);
+    QVERIFY(actionRow(clear, "buzzer_alert", QString::fromUtf8("蜂鸣器")) >= 0);
+
+    struct CaptureSize {
+        int width;
+        int height;
+        const char* fileName;
+    };
+    const CaptureSize sizes[] = {
+        {1280, 760, "catalog-desktop.png"},
+        {760, 720, "catalog-narrow.png"}
+    };
+    const QByteArray screenshotDir = qgetenv("EVENTMGR_SCREENSHOT_DIR");
+    if (!screenshotDir.isEmpty()) {
+        QVERIFY2(QDir().mkpath(QString::fromLocal8Bit(screenshotDir)),
+                 "Could not create screenshot directory");
+    }
+
+    for (const CaptureSize& size : sizes) {
+        widget.resize(size.width, size.height);
+        widget.show();
+        processPendingLayouts(&widget);
+
+        QCOMPARE(widget.size(), QSize(size.width, size.height));
+        QCOMPARE(selected->text(), kBoilerEvent);
+        verifyContainedAndVisible(splitter, &widget, "configuration splitter");
+        verifyContainedAndVisible(activeTitle, &widget, "active phase title");
+        verifyContainedAndVisible(active, &widget, "active phase table");
+        verifyContainedAndVisible(clearTitle, &widget, "clear phase title");
+        verifyContainedAndVisible(clear, &widget, "clear phase table");
+        verifyContainedAndVisible(selected, &widget, "selected event");
+        verifyContainedAndVisible(refresh, &widget, "refresh button");
+        verifyContainedAndVisible(apply, &widget, "apply button");
+        verifyContainedAndVisible(status, &widget, "status label");
+
+        const QRect activeTitleRect = widgetRectIn(activeTitle, &widget);
+        const QRect activeRect = widgetRectIn(active, &widget);
+        const QRect clearTitleRect = widgetRectIn(clearTitle, &widget);
+        const QRect clearRect = widgetRectIn(clear, &widget);
+        const QRect refreshRect = widgetRectIn(refresh, &widget);
+        const QRect applyRect = widgetRectIn(apply, &widget);
+        const QRect statusRect = widgetRectIn(status, &widget);
+        QVERIFY(activeTitleRect.bottom() < activeRect.top());
+        QVERIFY(activeRect.bottom() < clearTitleRect.top());
+        QVERIFY(clearTitleRect.bottom() < clearRect.top());
+        QVERIFY(splitter->geometry().bottom() < refreshRect.top());
+        QVERIFY(!refreshRect.intersects(applyRect));
+        QVERIFY(refreshRect.bottom() < statusRect.top());
+        QVERIFY(applyRect.bottom() < statusRect.top());
+        verifyButtonTextFits(refresh);
+        verifyButtonTextFits(apply);
+        verifyVisibleActionCellsStayInViewport(active);
+        verifyVisibleActionCellsStayInViewport(clear);
+        verifyOverflowingActionTextIsAccessible(active);
+        verifyOverflowingActionTextIsAccessible(clear);
+
+        const QPixmap pixmap = widget.grab();
+        QCOMPARE(pixmap.size(), QSize(size.width, size.height));
+        const QImage image = pixmap.toImage();
+        QCOMPARE(image.size(), QSize(size.width, size.height));
+        verifyMeaningfulImage(image);
+
+        if (!screenshotDir.isEmpty()) {
+            const QString path = QDir(QString::fromLocal8Bit(screenshotDir))
+                .filePath(QString::fromLatin1(size.fileName));
+            QVERIFY2(image.save(path, "PNG"), qPrintable(
+                QString::fromLatin1("Could not save screenshot to %1").arg(path)));
+        }
+    }
 }
 
 QTEST_MAIN(AlarmCatalogWidgetTest)
