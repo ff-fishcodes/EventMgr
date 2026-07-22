@@ -24,6 +24,7 @@ public:
 public slots:
     void loadCatalog();
     void requestReload();
+    // Returns false only when leaving must be cancelled; clean state is untouched.
     bool requestLeave();
     void on_applyBtn_clicked();
 
@@ -70,6 +71,7 @@ private:
     QVector<BackendBridge::CatalogEntry> catalog_;
     QString selectedEventId_;
     bool loadingUi_;
+    bool dirtyPromptActive_;
     // Keeps backend-provided action ordering alongside the map-based values.
     QMap<QString, BackendBridge::EventActionGroups> actionGroupsByEvent_;
 };

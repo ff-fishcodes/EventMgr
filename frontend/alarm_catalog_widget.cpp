@@ -31,6 +31,7 @@ AlarmCatalogWidget::AlarmCatalogWidget(BackendBridge* bridge, QWidget* parent)
       catalog_(),
       selectedEventId_(),
       loadingUi_(false),
+      dirtyPromptActive_(false),
       actionGroupsByEvent_() {
     ui.setupUi(this);
 
@@ -346,8 +347,12 @@ void AlarmCatalogWidget::requestReload() {
         reloadFromBackend();
         return;
     }
+    // QMessageBox runs a nested event loop; ignore queued reloads until resolved.
+    if (dirtyPromptActive_) return;
 
+    dirtyPromptActive_ = true;
     const DirtyDecision decision = confirmDirtyChanges();
+    dirtyPromptActive_ = false;
     if (decision == DirtyDecision::Cancel) return;
     if (decision == DirtyDecision::Apply) {
         on_applyBtn_clicked();
@@ -358,8 +363,11 @@ void AlarmCatalogWidget::requestReload() {
 
 bool AlarmCatalogWidget::requestLeave() {
     if (!hasDirtyChanges()) return true;
+    if (dirtyPromptActive_) return false;
 
+    dirtyPromptActive_ = true;
     const DirtyDecision decision = confirmDirtyChanges();
+    dirtyPromptActive_ = false;
     if (decision == DirtyDecision::Cancel) return false;
     if (decision == DirtyDecision::Apply) {
         on_applyBtn_clicked();
@@ -410,11 +418,43 @@ void AlarmCatalogWidget::on_applyBtn_clicked() {
                 bridge_->clearShield(pending.key());
             }
         }
-        // Active and clear are independent backend phases, even for one name.
-        applyActionDiffs(pending.key(), config.originalActiveActions,
-                         config.activeActions, true);
-        applyActionDiffs(pending.key(), config.originalClearActions,
-                         config.clearActions, false);
+
+        int originalLevel = 4;
+        for (int catalogIndex = 0; catalogIndex < catalog_.size(); ++catalogIndex) {
+            if (catalog_[catalogIndex].id == pending.key()) {
+                originalLevel = catalog_[catalogIndex].originalLevel;
+                break;
+            }
+        }
+        const BackendBridge::EventActionGroups liveGroups =
+            bridge_->getEventActionGroups(pending.key(), originalLevel);
+        QMap<QString, bool> liveOriginalActive;
+        QMap<QString, bool> liveCurrentActive;
+        QMap<QString, bool> liveOriginalClear;
+        QMap<QString, bool> liveCurrentClear;
+        for (int actionIndex = 0;
+             actionIndex < liveGroups.activeActions.size(); ++actionIndex) {
+            const QString& name = liveGroups.activeActions[actionIndex].name;
+            if (!config.activeActions.contains(name)) continue;
+            liveOriginalActive.insert(name,
+                                      config.originalActiveActions.value(name));
+            liveCurrentActive.insert(name, config.activeActions.value(name));
+        }
+        for (int actionIndex = 0;
+             actionIndex < liveGroups.clearActions.size(); ++actionIndex) {
+            const QString& name = liveGroups.clearActions[actionIndex].name;
+            if (!config.clearActions.contains(name)) continue;
+            liveOriginalClear.insert(name,
+                                     config.originalClearActions.value(name));
+            liveCurrentClear.insert(name, config.clearActions.value(name));
+        }
+
+        // Best-effort live membership validation skips removed or rephased edits.
+        // Existing void APIs leave a non-transactional query/write boundary.
+        applyActionDiffs(pending.key(), liveOriginalActive,
+                         liveCurrentActive, true);
+        applyActionDiffs(pending.key(), liveOriginalClear,
+                         liveCurrentClear, false);
     }
 
     selectedEventId_ = selectedEventId;

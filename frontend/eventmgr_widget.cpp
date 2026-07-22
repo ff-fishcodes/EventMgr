@@ -24,6 +24,10 @@ EventMgrWidget::EventMgrWidget(QWidget* parent)
 
 EventMgrWidget::~EventMgrWidget() {}
 
+bool EventMgrWidget::canLeaveCatalogPage() {
+    return catalogPage_->requestLeave();
+}
+
 void EventMgrWidget::setupUI() {
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -56,7 +60,7 @@ void EventMgrWidget::setupUI() {
 
 void EventMgrWidget::onTabChanged(int index) {
     if (previousTabIndex_ == 1 && index != 1 &&
-        !catalogPage_->requestLeave()) {
+        !canLeaveCatalogPage()) {
         // Block the restoration signal so cancel cannot recurse into this slot.
         const QSignalBlocker blocker(tabs_);
         tabs_->setCurrentIndex(1);

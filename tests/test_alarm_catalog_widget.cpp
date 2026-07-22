@@ -179,6 +179,53 @@ private:
     QQueue<DirtyDecision> decisions_;
 };
 
+class ReentrantAlarmCatalogWidget : public AlarmCatalogWidget {
+    Q_OBJECT
+public:
+    explicit ReentrantAlarmCatalogWidget(BackendBridge* bridge,
+                                         QWidget* parent = nullptr)
+        : AlarmCatalogWidget(bridge, parent), promptCount_(0), reentered_(false) {}
+    ~ReentrantAlarmCatalogWidget() override {}
+
+    int promptCount() const { return promptCount_; }
+
+protected:
+    DirtyDecision confirmDirtyChanges() override {
+        ++promptCount_;
+        if (!reentered_) {
+            reentered_ = true;
+            requestReload();
+        }
+        return DirtyDecision::Cancel;
+    }
+
+private:
+    int promptCount_;
+    bool reentered_;
+};
+
+class TestableEventMgrWidget : public EventMgrWidget {
+    Q_OBJECT
+public:
+    explicit TestableEventMgrWidget(QWidget* parent = nullptr)
+        : EventMgrWidget(parent), guardCallCount_(0) {}
+    ~TestableEventMgrWidget() override {}
+
+    void enqueueLeaveResult(bool result) { leaveResults_.enqueue(result); }
+    int guardCallCount() const { return guardCallCount_; }
+
+protected:
+    bool canLeaveCatalogPage() override {
+        ++guardCallCount_;
+        if (leaveResults_.isEmpty()) return true;
+        return leaveResults_.dequeue();
+    }
+
+private:
+    QQueue<bool> leaveResults_;
+    int guardCallCount_;
+};
+
 class AlarmCatalogWidgetTest : public QObject {
     Q_OBJECT
 public:
@@ -201,7 +248,12 @@ private slots:
     void requestLeaveAppliesDirtyChanges();
     void requestLeaveDiscardsDirtyChanges();
     void requestLeaveCancelKeepsStagedState();
+    void applySkipsActionRephasedAfterLoad();
+    void applyPreservesUntouchedActionChangedAfterLoad();
+    void applyKeepsSameActionPhasesIndependent();
+    void reentrantReloadDoesNotPromptTwice();
     void eventMgrCleanTabSwitchTracksCurrentIndex();
+    void eventMgrTabGuardRestoresThenAllowsTransition();
 
 private:
     BackendBridge bridge_;
@@ -739,6 +791,113 @@ void AlarmCatalogWidgetTest::requestLeaveCancelKeepsStagedState() {
     QCOMPARE(status->text(), statusBefore);
 }
 
+void AlarmCatalogWidgetTest::applySkipsActionRephasedAfterLoad() {
+    LinkageEngine::instance().configureEvent(
+        kBoilerEvent.toStdString(), {}, {"buzzer_alert"});
+    AlarmCatalogWidget widget(&bridge_);
+    widget.show();
+    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QVERIFY(catalog);
+    QTableWidget* clear = requiredChild<QTableWidget>(&widget, "clearActionTable");
+    QVERIFY(clear);
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QVERIFY(apply);
+    selectCatalogRow(catalog, kBoilerEvent);
+    toggle(tableCheckBox(clear,
+                         actionRow(clear, "buzzer_alert", QString::fromUtf8("蜂鸣器")), 1),
+           false);
+
+    LinkageEngine::instance().configureEvent(
+        kBoilerEvent.toStdString(), {"buzzer_alert"}, {});
+    apply->click();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+
+    const BackendBridge::EventActionGroups groups =
+        bridge_.getEventActionGroups(kBoilerEvent,
+                                     static_cast<int>(EventLevel::Emergency));
+    QCOMPARE(phaseActionEnabled(groups, "buzzer_alert", true), true);
+    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "buzzer_alert", true));
+    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "buzzer_alert", false));
+}
+
+void AlarmCatalogWidgetTest::applyPreservesUntouchedActionChangedAfterLoad() {
+    LinkageEngine::instance().configureEvent(
+        kBoilerEvent.toStdString(), {"cooler_fan", "cooler_stop"}, {});
+    AlarmCatalogWidget widget(&bridge_);
+    widget.show();
+    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QVERIFY(catalog);
+    QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
+    QVERIFY(active);
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QVERIFY(apply);
+    selectCatalogRow(catalog, kBoilerEvent);
+    toggle(tableCheckBox(active,
+                         actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
+           false);
+
+    LinkageEngine::instance().disableAction(
+        kBoilerEvent.toStdString(), "cooler_stop", true);
+    apply->click();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+
+    QVERIFY(LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "cooler_fan", true));
+    QVERIFY(LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "cooler_stop", true));
+}
+
+void AlarmCatalogWidgetTest::applyKeepsSameActionPhasesIndependent() {
+    LinkageEngine::instance().configureEvent(
+        kBoilerEvent.toStdString(), {"cooler_fan"}, {"cooler_fan"});
+    AlarmCatalogWidget widget(&bridge_);
+    widget.show();
+    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QVERIFY(catalog);
+    QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
+    QVERIFY(active);
+    QTableWidget* clear = requiredChild<QTableWidget>(&widget, "clearActionTable");
+    QVERIFY(clear);
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QVERIFY(apply);
+    selectCatalogRow(catalog, kBoilerEvent);
+    toggle(tableCheckBox(active,
+                         actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
+           false);
+    apply->click();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+
+    const BackendBridge::EventActionGroups groups =
+        bridge_.getEventActionGroups(kBoilerEvent,
+                                     static_cast<int>(EventLevel::Emergency));
+    QCOMPARE(phaseActionEnabled(groups, "cooler_fan", true), false);
+    QCOMPARE(phaseActionEnabled(groups, "cooler_fan", false), true);
+    QVERIFY(LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "cooler_fan", true));
+    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "cooler_fan", false));
+}
+
+void AlarmCatalogWidgetTest::reentrantReloadDoesNotPromptTwice() {
+    ReentrantAlarmCatalogWidget widget(&bridge_);
+    widget.show();
+    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QVERIFY(catalog);
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QVERIFY(apply);
+    const int boilerRow = catalogRow(catalog, kBoilerEvent);
+    toggle(tableCheckBox(catalog, boilerRow, 4), true);
+
+    widget.requestReload();
+
+    QCOMPARE(widget.promptCount(), 1);
+    QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 4)), true);
+    QVERIFY(apply->isEnabled());
+    QVERIFY(!ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
+}
+
 void AlarmCatalogWidgetTest::eventMgrCleanTabSwitchTracksCurrentIndex() {
     EventMgrWidget widget;
     widget.show();
@@ -757,6 +916,31 @@ void AlarmCatalogWidgetTest::eventMgrCleanTabSwitchTracksCurrentIndex() {
     tabs->setCurrentIndex(0);
     QCoreApplication::processEvents(QEventLoop::AllEvents);
     QCOMPARE(tabs->currentIndex(), 0);
+    QCOMPARE(changedSpy.count(), 2);
+}
+
+void AlarmCatalogWidgetTest::eventMgrTabGuardRestoresThenAllowsTransition() {
+    TestableEventMgrWidget widget;
+    widget.show();
+    QTabWidget* tabs = widget.findChild<QTabWidget*>();
+    QVERIFY(tabs);
+    tabs->setCurrentIndex(1);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(tabs->currentIndex(), 1);
+
+    widget.enqueueLeaveResult(false);
+    widget.enqueueLeaveResult(true);
+    QSignalSpy changedSpy(tabs, SIGNAL(currentChanged(int)));
+    tabs->setCurrentIndex(0);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(tabs->currentIndex(), 1);
+    QCOMPARE(widget.guardCallCount(), 1);
+    QCOMPARE(changedSpy.count(), 1);
+
+    tabs->setCurrentIndex(0);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(tabs->currentIndex(), 0);
+    QCOMPARE(widget.guardCallCount(), 2);
     QCOMPARE(changedSpy.count(), 2);
 }
 

@@ -23,6 +23,9 @@ public:
     // 对外暴露后端接口（供宿主项目使用）
     BackendBridge* backend() const { return bridge_; }
 
+protected:
+    virtual bool canLeaveCatalogPage();
+
 private slots:
     void onTabChanged(int index);
     void updateShieldStatus();
