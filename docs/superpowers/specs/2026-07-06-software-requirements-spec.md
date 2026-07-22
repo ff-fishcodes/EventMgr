@@ -1,5 +1,8 @@
 # 事件管理中心 — 需求规格说明文档
 
+> **版本状态：历史归档，已被[当前需求基线](./2026-07-21-software-requirements-baseline.md)取代。**
+> 本文保留 v2.2 的原始内容，仅用于版本演进回溯，不得作为当前开发或验收依据。当前代码的设备事件 ID 为 `deviceName-frameID-alarmField`，关联设备系统事件 ID 为 `deviceName-0-eventName`，纯系统事件 ID 为 `eventName`；当前仅实现同进程桥接，Socket 分离仍是桩边界；后端直接依赖 Qt5Core。其他行为与限制以当前基线为准。
+
 > 文档编号：EventMgr-RS-001
 > 版本：v2.2
 > 日期：2026-07-08
