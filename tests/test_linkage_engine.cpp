@@ -3,6 +3,8 @@
 #include "backend/linkage_engine.h"
 
 #include <QAtomicInt>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QSemaphore>
 #include <QStringList>
 
@@ -81,16 +83,6 @@ bool hasDuplicateNames(const Actions& actions) {
     return false;
 }
 
-bool waitForCount(const QAtomicInt& counter, int expected, int timeoutMs = 2000) {
-    QElapsedTimer timer;
-    timer.start();
-    while (counter.loadAcquire() != expected && timer.elapsed() < timeoutMs) {
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-        QThread::yieldCurrentThread();
-    }
-    return counter.loadAcquire() == expected;
-}
-
 } // namespace
 
 class LinkageEngineTest : public QObject {
@@ -130,18 +122,32 @@ void LinkageEngineTest::cleanup() {
 }
 
 void LinkageEngineTest::returnsDefaultsBeforeEventActionsAndDeduplicates() {
-    engine_.registerAction("default_active", "\u9ed8\u8ba4\u4ea7\u751f", []() {});
-    engine_.registerAction("shared", "\u5171\u4eab\u52a8\u4f5c", []() {});
-    engine_.registerAction("event_active", "\u4e8b\u4ef6\u4ea7\u751f", []() {});
-    engine_.registerAction("default_clear", "\u9ed8\u8ba4\u6d88\u9664", []() {});
-    engine_.registerAction("event_clear", "\u4e8b\u4ef6\u6d88\u9664", []() {});
-
-    engine_.setLevelDefault(EventLevel::Emergency,
-                            {"default_active", "shared"},
-                            {"default_clear", "shared"});
-    engine_.configureEvent("E-1-A",
-                           {"shared", "event_active"},
-                           {"shared", "event_clear"});
+    QAtomicInt defaultActiveCount(0);
+    QAtomicInt sharedCount(0);
+    QAtomicInt eventActiveCount(0);
+    QAtomicInt defaultClearCount(0);
+    QAtomicInt eventClearCount(0);
+    const auto configure = [this, &defaultActiveCount, &sharedCount,
+                            &eventActiveCount, &defaultClearCount,
+                            &eventClearCount]() {
+        engine_.registerAction("default_active", "\u9ed8\u8ba4\u4ea7\u751f",
+                               [&defaultActiveCount]() { defaultActiveCount.ref(); });
+        engine_.registerAction("shared", "\u5171\u4eab\u52a8\u4f5c",
+                               [&sharedCount]() { sharedCount.ref(); });
+        engine_.registerAction("event_active", "\u4e8b\u4ef6\u4ea7\u751f",
+                               [&eventActiveCount]() { eventActiveCount.ref(); });
+        engine_.registerAction("default_clear", "\u9ed8\u8ba4\u6d88\u9664",
+                               [&defaultClearCount]() { defaultClearCount.ref(); });
+        engine_.registerAction("event_clear", "\u4e8b\u4ef6\u6d88\u9664",
+                               [&eventClearCount]() { eventClearCount.ref(); });
+        engine_.setLevelDefault(EventLevel::Emergency,
+                                {"default_active", "shared"},
+                                {"default_clear", "shared"});
+        engine_.configureEvent("E-1-A",
+                               {"shared", "event_active"},
+                               {"shared", "event_clear"});
+    };
+    configure();
 
     const auto groups =
         engine_.getEventActionGroups("E-1-A", EventLevel::Emergency);
@@ -160,6 +166,24 @@ void LinkageEngineTest::returnsDefaultsBeforeEventActionsAndDeduplicates() {
                            << QString::fromUtf8("\u4e8b\u4ef6\u6d88\u9664"));
     QCOMPARE(enabledStates(groups.activeActions), QList<bool>() << true << true << true);
     QCOMPARE(enabledStates(groups.clearActions), QList<bool>() << true << true << true);
+
+    const Event event = makeEvent("E-1-A", EventLevel::Emergency);
+    engine_.executeActive(event);
+    engine_.clearAll();
+    QCOMPARE(defaultActiveCount.loadAcquire(), 1);
+    QCOMPARE(sharedCount.loadAcquire(), 1);
+    QCOMPARE(eventActiveCount.loadAcquire(), 1);
+    QCOMPARE(defaultClearCount.loadAcquire(), 0);
+    QCOMPARE(eventClearCount.loadAcquire(), 0);
+
+    configure();
+    engine_.executeCleared(event);
+    engine_.clearAll();
+    QCOMPARE(defaultActiveCount.loadAcquire(), 1);
+    QCOMPARE(sharedCount.loadAcquire(), 2);
+    QCOMPARE(eventActiveCount.loadAcquire(), 1);
+    QCOMPARE(defaultClearCount.loadAcquire(), 1);
+    QCOMPARE(eventClearCount.loadAcquire(), 1);
 }
 
 void LinkageEngineTest::keepsActiveAndClearActionsIndependent() {
@@ -200,10 +224,10 @@ void LinkageEngineTest::isolatesDisableStateByEventActionAndPhase() {
     const LinkageEngine::EventActionGroups second =
         engine_.getEventActionGroups("E-2-A", EventLevel::Emergency);
 
-    QVERIFY(names(first.activeActions).contains("shared"));
-    QVERIFY(names(first.clearActions).contains("shared"));
-    QVERIFY(names(second.activeActions).contains("shared"));
-    QVERIFY(names(second.clearActions).contains("shared"));
+    QCOMPARE(names(first.activeActions), QStringList() << "shared" << "other");
+    QCOMPARE(names(first.clearActions), QStringList() << "shared" << "other");
+    QCOMPARE(names(second.activeActions), QStringList() << "shared" << "other");
+    QCOMPARE(names(second.clearActions), QStringList() << "shared" << "other");
     QVERIFY(!enabledFor(first.activeActions, "shared"));
     QVERIFY(enabledFor(first.clearActions, "shared"));
     QVERIFY(enabledFor(first.activeActions, "other"));
@@ -216,6 +240,8 @@ void LinkageEngineTest::isolatesDisableStateByEventActionAndPhase() {
     engine_.enableAction("E-1-A", "shared", true);
     const LinkageEngine::EventActionGroups reenabled =
         engine_.getEventActionGroups("E-1-A", EventLevel::Emergency);
+    QCOMPARE(names(reenabled.activeActions), QStringList() << "shared" << "other");
+    QCOMPARE(names(reenabled.clearActions), QStringList() << "shared" << "other");
     QVERIFY(enabledFor(reenabled.activeActions, "shared"));
     QVERIFY(!enabledFor(reenabled.clearActions, "other"));
 }
@@ -252,12 +278,17 @@ void LinkageEngineTest::suppressesInfoActionsAndFallback() {
 void LinkageEngineTest::invokesFallbackWithoutHoldingConfigurationLock() {
     QAtomicInt fallbackCount(0);
     QAtomicInt registeredDuringFallback(0);
+    std::string fallbackEventId;
+    bool fallbackWasActive = false;
     QSemaphore registrationFinished;
     std::thread registrationThread;
 
     engine_.setFallback([this, &fallbackCount, &registeredDuringFallback,
+                         &fallbackEventId, &fallbackWasActive,
                          &registrationFinished, &registrationThread]
-                        (const std::string&, bool) {
+                        (const std::string& eventId, bool isActive) {
+        fallbackEventId = eventId;
+        fallbackWasActive = isActive;
         registrationThread = std::thread([this, &registrationFinished]() {
             engine_.registerAction("from_fallback", "\u56de\u8c03\u5185\u6ce8\u518c", []() {});
             registrationFinished.release();
@@ -274,18 +305,41 @@ void LinkageEngineTest::invokesFallbackWithoutHoldingConfigurationLock() {
     if (registrationThread.joinable()) registrationThread.join();
 
     QCOMPARE(fallbackCount.loadAcquire(), 1);
+    QCOMPARE(QString::fromStdString(fallbackEventId), QString("E-1-A"));
+    QVERIFY(fallbackWasActive);
     QVERIFY2(registeredDuringFallback.loadAcquire() == 1,
              "registerAction did not finish while fallback was running; configuration lock may be held");
     engine_.setFallback(LinkageEngine::FallbackCallback());
 }
 
 void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
+    const char childFlag[] = "EVENTMGR_CONCURRENCY_CHILD";
+    if (qEnvironmentVariableIntValue(childFlag) != 1) {
+        QProcess child;
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        environment.insert(childFlag, "1");
+        child.setProcessEnvironment(environment);
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        child.start(QCoreApplication::applicationFilePath(),
+                    QStringList() << "supportsConcurrentConfigurationQueryAndExecution");
+        QVERIFY2(child.waitForStarted(2000), qPrintable(child.errorString()));
+
+        const bool finished = child.waitForFinished(20000);
+        if (!finished) {
+            child.kill();
+            child.waitForFinished(2000);
+        }
+        const QByteArray childOutput = child.readAll();
+        QVERIFY2(finished, "concurrent linkage child exceeded 20 seconds; possible deadlock");
+        QVERIFY2(child.exitStatus() == QProcess::NormalExit, childOutput.constData());
+        QVERIFY2(child.exitCode() == 0, childOutput.constData());
+        return;
+    }
+
     const int iterationCount = 500;
     const int workerCount = 3;
     QAtomicInt duplicateDetected(0);
-    QAtomicInt completedWorkers(0);
     QSemaphore startGate;
-    QSemaphore completionGate;
     std::mutex diagnosticMutex;
     std::string diagnostic;
 
@@ -303,8 +357,7 @@ void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
         }
     };
 
-    std::thread writer([this, &startGate, &completionGate, &completedWorkers,
-                        iterationCount]() {
+    std::thread writer([this, &startGate, iterationCount]() {
         startGate.acquire();
         for (int i = 0; i < iterationCount; ++i) {
             if ((i % 2) == 0) {
@@ -327,12 +380,9 @@ void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
                 engine_.disableAction("E-1-A", "shared", false);
             }
         }
-        completedWorkers.ref();
-        completionGate.release();
     });
 
-    const auto readerBody = [this, &startGate, &completionGate, &completedWorkers,
-                             &recordDuplicate, &value,
+    const auto readerBody = [this, &startGate, &recordDuplicate, &value,
                              iterationCount]() {
         startGate.acquire();
         for (int i = 0; i < iterationCount; ++i) {
@@ -343,22 +393,16 @@ void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
             engine_.executeActive(value);
             engine_.executeCleared(value);
         }
-        completedWorkers.ref();
-        completionGate.release();
     };
 
     std::thread firstReader(readerBody);
     std::thread secondReader(readerBody);
     startGate.release(workerCount);
 
-    const bool completedInTime = completionGate.tryAcquire(workerCount, 15000);
     writer.join();
     firstReader.join();
     secondReader.join();
 
-    QVERIFY2(completedInTime,
-             "concurrent linkage workers did not complete within 15 seconds; possible deadlock");
-    QVERIFY(waitForCount(completedWorkers, workerCount));
     QVERIFY2(duplicateDetected.loadAcquire() == 0, diagnostic.c_str());
 }
 
