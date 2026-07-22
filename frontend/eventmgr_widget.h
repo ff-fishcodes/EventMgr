@@ -36,6 +36,7 @@ private:
     AlarmCatalogWidget* catalogPage_;
     QLabel*             shieldLabel_;
     QTimer*             statusTimer_;
+    int                 previousTabIndex_;
 };
 
 #endif

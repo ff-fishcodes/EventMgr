@@ -356,8 +356,68 @@ void AlarmCatalogWidget::requestReload() {
     reloadFromBackend();
 }
 
+bool AlarmCatalogWidget::requestLeave() {
+    if (!hasDirtyChanges()) return true;
+
+    const DirtyDecision decision = confirmDirtyChanges();
+    if (decision == DirtyDecision::Cancel) return false;
+    if (decision == DirtyDecision::Apply) {
+        on_applyBtn_clicked();
+        return true;
+    }
+
+    reloadFromBackend();
+    return true;
+}
+
+void AlarmCatalogWidget::applyActionDiffs(
+        const QString& eventId,
+        const QMap<QString, bool>& original,
+        const QMap<QString, bool>& current,
+        bool isActive) {
+    QMap<QString, bool>::const_iterator action = current.constBegin();
+    for (; action != current.constEnd(); ++action) {
+        if (original.value(action.key()) == action.value()) continue;
+        if (action.value()) {
+            bridge_->enableAction(eventId, action.key(), isActive);
+        } else {
+            bridge_->disableAction(eventId, action.key(), isActive);
+        }
+    }
+}
+
 void AlarmCatalogWidget::on_applyBtn_clicked() {
-    // Task 7 will atomically submit all pending diffs. Until then, preserving
-    // staged UI state is safer than partially writing catalog-only changes.
-    updateDirtyUi();
+    if (!hasDirtyChanges()) return;
+
+    const QString selectedEventId = selectedEventId_;
+    QMap<QString, PendingEventConfig>::const_iterator pending =
+        pendingByEvent_.constBegin();
+    for (; pending != pendingByEvent_.constEnd(); ++pending) {
+        const PendingEventConfig& config = pending.value();
+        if (!config.isDirty()) continue;
+
+        if (config.originalDowngraded != config.downgraded) {
+            if (config.downgraded) {
+                bridge_->setDowngrade(pending.key(), 4);
+            } else {
+                bridge_->removeDowngrade(pending.key());
+            }
+        }
+        if (config.originalShielded != config.shielded) {
+            if (config.shielded) {
+                bridge_->setShield(pending.key());
+            } else {
+                bridge_->clearShield(pending.key());
+            }
+        }
+        // Active and clear are independent backend phases, even for one name.
+        applyActionDiffs(pending.key(), config.originalActiveActions,
+                         config.activeActions, true);
+        applyActionDiffs(pending.key(), config.originalClearActions,
+                         config.clearActions, false);
+    }
+
+    selectedEventId_ = selectedEventId;
+    reloadFromBackend();
+    ui.statusLabel->setText(QString::fromUtf8("配置已应用"));
 }

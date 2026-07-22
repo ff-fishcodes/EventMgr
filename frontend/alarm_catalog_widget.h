@@ -24,6 +24,7 @@ public:
 public slots:
     void loadCatalog();
     void requestReload();
+    bool requestLeave();
     void on_applyBtn_clicked();
 
 protected:
@@ -56,6 +57,10 @@ private:
                            bool activePhase);
     void updateDirtyUi();
     bool hasDirtyChanges() const;
+    void applyActionDiffs(const QString& eventId,
+                          const QMap<QString, bool>& original,
+                          const QMap<QString, bool>& current,
+                          bool isActive);
     const BackendBridge::EventActionGroups* actionGroupsForEvent(
         const QString& eventId) const;
 

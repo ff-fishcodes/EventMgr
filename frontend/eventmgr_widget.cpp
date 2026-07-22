@@ -5,10 +5,18 @@
 #include <QVBoxLayout>
 #include <QTabWidget>
 #include <QLabel>
+#include <QSignalBlocker>
 #include <QTimer>
 
 EventMgrWidget::EventMgrWidget(QWidget* parent)
-    : QWidget(parent), bridge_(nullptr) {
+    : QWidget(parent),
+      bridge_(nullptr),
+      tabs_(nullptr),
+      eventListPage_(nullptr),
+      catalogPage_(nullptr),
+      shieldLabel_(nullptr),
+      statusTimer_(nullptr),
+      previousTabIndex_(0) {
     bridge_ = new BackendBridge(this);
     bridge_->initialize();
     setupUI();
@@ -47,6 +55,15 @@ void EventMgrWidget::setupUI() {
 }
 
 void EventMgrWidget::onTabChanged(int index) {
+    if (previousTabIndex_ == 1 && index != 1 &&
+        !catalogPage_->requestLeave()) {
+        // Block the restoration signal so cancel cannot recurse into this slot.
+        const QSignalBlocker blocker(tabs_);
+        tabs_->setCurrentIndex(1);
+        return;
+    }
+
+    previousTabIndex_ = index;
     switch (index) {
         case 0: eventListPage_->refresh();     break;
         case 1: catalogPage_->loadCatalog();   break;
