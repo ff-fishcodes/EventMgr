@@ -2,63 +2,254 @@
 <ui version="4.0">
  <class>AlarmCatalogWidget</class>
  <widget class="QWidget" name="AlarmCatalogWidget">
+  <property name="minimumSize">
+   <size>
+    <width>640</width>
+    <height>420</height>
+   </size>
+  </property>
   <layout class="QVBoxLayout" name="mainLayout">
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <property name="leftMargin">
+    <number>12</number>
+   </property>
+   <property name="topMargin">
+    <number>12</number>
+   </property>
+   <property name="rightMargin">
+    <number>12</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
    <item>
     <widget class="QLabel" name="titleLabel">
      <property name="text">
       <string>报警配置管理</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size:16px; font-weight:bold;</string>
+      <string notr="true">font-size:16px; font-weight:600;</string>
      </property>
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="hintLabel">
-     <property name="text">
-      <string>可在此页对任一报警预先设置降级或屏蔽，报警产生时自动生效。</string>
+    <widget class="QSplitter" name="configSplitter">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
      </property>
-     <property name="styleSheet">
-      <string notr="true">color:gray;</string>
+     <property name="childrenCollapsible">
+      <bool>false</bool>
      </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QTableWidget" name="catalogTable">
-     <property name="editTriggers">
-      <set>QAbstractItemView::NoEditTriggers</set>
-     </property>
-     <property name="selectionBehavior">
-      <enum>QAbstractItemView::SelectRows</enum>
-     </property>
-     <attribute name="horizontalHeaderStretchLastSection">
-      <bool>true</bool>
-     </attribute>
-     <column>
-      <property name="text">
-       <string>事件编号</string>
+     <widget class="QWidget" name="catalogPane">
+      <property name="minimumSize">
+       <size>
+        <width>300</width>
+        <height>0</height>
+       </size>
       </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>报警描述</string>
+      <layout class="QVBoxLayout" name="catalogPaneLayout">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>4</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QTableWidget" name="catalogTable">
+         <property name="editTriggers">
+          <set>QAbstractItemView::NoEditTriggers</set>
+         </property>
+         <property name="selectionMode">
+          <enum>QAbstractItemView::SingleSelection</enum>
+         </property>
+         <property name="selectionBehavior">
+          <enum>QAbstractItemView::SelectRows</enum>
+         </property>
+         <property name="horizontalScrollMode">
+          <enum>QAbstractItemView::ScrollPerPixel</enum>
+         </property>
+         <property name="alternatingRowColors">
+          <bool>true</bool>
+         </property>
+         <property name="showGrid">
+          <bool>false</bool>
+         </property>
+         <attribute name="horizontalHeaderStretchLastSection">
+          <bool>false</bool>
+         </attribute>
+         <attribute name="verticalHeaderVisible">
+          <bool>false</bool>
+         </attribute>
+         <column>
+          <property name="text">
+           <string>事件编号</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>报警描述</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>原始等级</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>降级</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>屏蔽</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>联动</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="linkagePane">
+      <property name="minimumSize">
+       <size>
+        <width>260</width>
+        <height>0</height>
+       </size>
       </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>原始等级</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>降级为提示</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>屏蔽展示</string>
-      </property>
-     </column>
+      <layout class="QVBoxLayout" name="linkagePaneLayout">
+       <property name="spacing">
+        <number>6</number>
+       </property>
+       <property name="leftMargin">
+        <number>8</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="selectedEventLabel">
+         <property name="text">
+          <string/>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-weight:600; color:#263238;</string>
+         </property>
+         <property name="textInteractionFlags">
+          <set>Qt::TextSelectableByMouse</set>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="activeActionTitleLabel">
+         <property name="text">
+          <string>事件产生时</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-weight:600;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="activeActionTable">
+         <property name="editTriggers">
+          <set>QAbstractItemView::NoEditTriggers</set>
+         </property>
+         <property name="selectionMode">
+          <enum>QAbstractItemView::SingleSelection</enum>
+         </property>
+         <property name="selectionBehavior">
+          <enum>QAbstractItemView::SelectRows</enum>
+         </property>
+         <property name="horizontalScrollMode">
+          <enum>QAbstractItemView::ScrollPerPixel</enum>
+         </property>
+         <property name="showGrid">
+          <bool>false</bool>
+         </property>
+         <attribute name="horizontalHeaderStretchLastSection">
+          <bool>false</bool>
+         </attribute>
+         <attribute name="verticalHeaderVisible">
+          <bool>false</bool>
+         </attribute>
+         <column>
+          <property name="text">
+           <string>联动动作</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>启用</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="clearActionTitleLabel">
+         <property name="text">
+          <string>事件消除时</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-weight:600;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="clearActionTable">
+         <property name="editTriggers">
+          <set>QAbstractItemView::NoEditTriggers</set>
+         </property>
+         <property name="selectionMode">
+          <enum>QAbstractItemView::SingleSelection</enum>
+         </property>
+         <property name="selectionBehavior">
+          <enum>QAbstractItemView::SelectRows</enum>
+         </property>
+         <property name="horizontalScrollMode">
+          <enum>QAbstractItemView::ScrollPerPixel</enum>
+         </property>
+         <property name="showGrid">
+          <bool>false</bool>
+         </property>
+         <attribute name="horizontalHeaderStretchLastSection">
+          <bool>false</bool>
+         </attribute>
+         <attribute name="verticalHeaderVisible">
+          <bool>false</bool>
+         </attribute>
+         <column>
+          <property name="text">
+           <string>联动动作</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>启用</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>
@@ -72,11 +263,14 @@
      </item>
      <item>
       <widget class="QPushButton" name="applyBtn">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>应用配置</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-weight:bold;</string>
+        <string notr="true">font-weight:600;</string>
        </property>
       </widget>
      </item>
@@ -99,6 +293,9 @@
     <widget class="QLabel" name="statusLabel">
      <property name="text">
       <string/>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">color:#455a64;</string>
      </property>
     </widget>
    </item>
