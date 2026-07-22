@@ -24,7 +24,8 @@ public:
     explicit ActionTask(LinkageEngine::ActionCallback cb) : callback_(cb) {
         setAutoDelete(true);
     }
-    void run() { callback_(); }
+    ~ActionTask() {}
+    void run() override { callback_(); }
 };
 
 } // namespace
@@ -75,11 +76,13 @@ std::string LinkageEngine::makeDisableKey(const EventId& id, const std::string& 
 void LinkageEngine::registerAction(const std::string& name,
                                     const std::string& displayName,
                                     ActionCallback callback) {
+    QMutexLocker locker(&configMutex_);
     actionTable_[name] = callback;
     displayNames_[name] = displayName;
 }
 
 void LinkageEngine::setFallback(FallbackCallback callback) {
+    QMutexLocker locker(&configMutex_);
     fallback_ = callback;
 }
 
@@ -87,12 +90,14 @@ void LinkageEngine::configureEvent(
         const EventId& eventId,
         const std::vector<std::string>& activeNames,
         const std::vector<std::string>& clearNames) {
+    QMutexLocker locker(&configMutex_);
     eventConfig_[eventId] = std::make_pair(activeNames, clearNames);
 }
 
 void LinkageEngine::setLevelDefault(EventLevel level,
                                      const std::vector<std::string>& activeActions,
                                      const std::vector<std::string>& clearActions) {
+    QMutexLocker locker(&configMutex_);
     levelDefaults_[static_cast<int>(level)] =
         LevelActionConfig(activeActions, clearActions);
 }
@@ -161,35 +166,45 @@ std::vector<std::string> LinkageEngine::effectiveConfiguredNamesLocked(
 void LinkageEngine::executeActive(const Event& event) {
     if (event.originalLevel == EventLevel::Info) return;
     std::vector<std::string> names;
+    FallbackCallback fallback;
     {
         QMutexLocker locker(&configMutex_);
         names = resolveNamesLocked(event, true);
+        fallback = fallback_;
     }
     executeNames(names, event.id, true);
-    if (fallback_) fallback_(event.id, true);
+    if (fallback) fallback(event.id, true);
 }
 
 void LinkageEngine::executeCleared(const Event& event) {
     if (event.originalLevel == EventLevel::Info) return;
     std::vector<std::string> names;
+    FallbackCallback fallback;
     {
         QMutexLocker locker(&configMutex_);
         names = resolveNamesLocked(event, false);
+        fallback = fallback_;
     }
     executeNames(names, event.id, false);
-    if (fallback_) fallback_(event.id, false);
+    if (fallback) fallback(event.id, false);
 }
 
 void LinkageEngine::executeNames(const std::vector<std::string>& names,
                                   const EventId& eventId, bool isActive) {
-    for (std::vector<std::string>::const_iterator it = names.begin();
-         it != names.end(); ++it) {
-        if (isActionDisabled(eventId, *it, isActive)) continue;
-        std::unordered_map<std::string, ActionCallback>::iterator
-            found = actionTable_.find(*it);
-        if (found != actionTable_.end()) {
-            linkagePool_.start(new ActionTask(found->second));
+    std::vector<ActionCallback> callbacks;
+    {
+        QMutexLocker locker(&configMutex_);
+        for (std::vector<std::string>::const_iterator it = names.begin();
+             it != names.end(); ++it) {
+            if (isActionDisabledLocked(eventId, *it, isActive)) continue;
+            std::unordered_map<std::string, ActionCallback>::const_iterator
+                found = actionTable_.find(*it);
+            if (found != actionTable_.end()) callbacks.push_back(found->second);
         }
+    }
+    for (std::vector<ActionCallback>::const_iterator it = callbacks.begin();
+         it != callbacks.end(); ++it) {
+        linkagePool_.start(new ActionTask(*it));
     }
 }
 
@@ -199,6 +214,7 @@ void LinkageEngine::executeNames(const std::vector<std::string>& names,
 
 void LinkageEngine::disableAction(const EventId& eventId,
                                    const std::string& name, bool isActive) {
+    QMutexLocker locker(&configMutex_);
     std::string key = makeDisableKey(eventId, name);
     if (isActive) disabledActive_.insert(key);
     else          disabledClear_.insert(key);
@@ -206,6 +222,7 @@ void LinkageEngine::disableAction(const EventId& eventId,
 
 void LinkageEngine::enableAction(const EventId& eventId,
                                   const std::string& name, bool isActive) {
+    QMutexLocker locker(&configMutex_);
     std::string key = makeDisableKey(eventId, name);
     if (isActive) disabledActive_.erase(key);
     else          disabledClear_.erase(key);
@@ -264,11 +281,14 @@ LinkageEngine::EventActionGroups LinkageEngine::getEventActionGroups(
 // ============================================================
 
 void LinkageEngine::clearAll() {
+    // 调用者须先停止新的执行；本函数仅用于关闭/测试，不是完整关闭协议。
     linkagePool_.waitForDone();
+    QMutexLocker locker(&configMutex_);
     actionTable_.clear();
     displayNames_.clear();
     eventConfig_.clear();
     levelDefaults_.clear();
+    fallback_ = FallbackCallback();
     disabledActive_.clear();
     disabledClear_.clear();
 }
