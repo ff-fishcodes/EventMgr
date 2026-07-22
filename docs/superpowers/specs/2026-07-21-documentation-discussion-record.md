@@ -311,3 +311,21 @@ test "$backend_demo_exit" -eq 0
 - `AlarmCatalog`、`SocketServer`、`LogWriter`、`CmdSender` 和 `BuzzerControl` 等真实外部适配器未接入或未测试。
 - Mermaid 仅完成 10 个代码块的结构检查，因 `mmdc` 不可用而未渲染。
 - 第 5 节 19 项风险及第 5.1 节治理状态均保持“未实施”或“待产品确认”；文档完成不改变代码风险状态。
+
+## 12. 2026-07-22 需求文档按代码对齐确认
+
+### 12.1 用户确认
+
+用户明确确认“以当前代码为准，更新所有需规文件”，并批准分层修订方案：当前需求基线完整对齐代码；历史需规保留正文并增加失效声明和差异摘要；原始需求和讨论记录保留用于回溯。
+
+### 12.2 生效规则
+
+- [当前需求基线](./2026-07-21-software-requirements-baseline.md)是唯一当前需求与验收基线。
+- `doc/requirment.md` 是原始需求输入，不表示当前实现。
+- 2026-06-26 v1.1 和 2026-07-06 v2.2 需规是历史归档，不得用于当前开发或验收。
+- 当前 EventId 契约为：设备事件 `deviceName-frameID-alarmField`，关联设备系统事件 `deviceName-0-eventName`，纯系统事件 `eventName`。
+- 本次只修改文档，不修改 EventId 代码、解析限制或其他软件行为。
+
+### 12.3 实施依据
+
+修订设计见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)，执行步骤见[需求文档按代码对齐计划](../plans/2026-07-22-requirements-code-alignment.md)。最终验证结果在本节后续小节补录。

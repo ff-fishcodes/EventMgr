@@ -731,3 +731,9 @@ connect(bridge, &BackendBridge::linkageAction,
 ```
 
 *记录完毕。本文档供后续需求回顾和设计决策追溯使用。*
+
+---
+
+## 20. 2026-07-22 后续状态
+
+用户确认需求文档以当前代码为准，并采用分层修订：当前需求基线作为唯一有效需求和验收依据；本文及早期需求、设计继续作为历史讨论记录，不回写早期结论。当前生效入口为[当前需求基线](./2026-07-21-software-requirements-baseline.md)，修订范围与保留规则见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)。

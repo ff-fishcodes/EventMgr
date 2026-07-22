@@ -189,9 +189,10 @@ make -j4
 
 [文档中心](docs/README.md)区分当前基线与历史资料。以下内容是当前代码审计形成并确认的 2026-07-21 基线；旧版需求与设计请只通过文档中心追溯。
 
+- [当前需求基线](docs/superpowers/specs/2026-07-21-software-requirements-baseline.md)：唯一当前需求与验收依据；原始需求和旧版需规仅用于追溯。
+
 | 文档 | 内容 |
 |------|------|
-| [当前需求基线](docs/superpowers/specs/2026-07-21-software-requirements-baseline.md) | 已实现行为、约束与需求差异 |
 | [概要设计](docs/superpowers/specs/2026-07-21-high-level-design.md) | 系统边界、模块、数据流与部署状态 |
 | [详细设计](docs/superpowers/specs/2026-07-21-detailed-design.md) | 类型、接口、算法、所有权与并发设计 |
 | [架构与行为图](docs/superpowers/specs/2026-07-21-architecture-diagrams.md) | 类图、调用关系图与主要时序图 |

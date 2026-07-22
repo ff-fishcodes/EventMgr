@@ -1,6 +1,6 @@
 # EventMgr 文档中心
 
-本目录按版本区分当前基线与历史资料。五份 2026-07-21 基线交付文档已经完成并通过审查，现作为当前文档基线生效。基线记录审查时点的实现；后续代码发生变化而文档尚未同步时，以代码和构建配置为事实依据。原始需求和历史设计仅用于追溯，执行计划记录本轮文档工作的实施过程。
+本目录按版本区分当前基线与历史资料。2026-07-21 基线交付文档已经完成并通过审查，现作为当前文档基线生效，其中当前需求基线是唯一有效的需求与验收文档。基线记录审查时点的实现；后续代码发生变化而文档尚未同步时，以代码和构建配置为事实依据。原始需求和历史设计仅用于追溯，执行计划记录文档工作的实施过程。
 
 ## 当前基线
 
@@ -12,14 +12,16 @@
 | [架构与行为图](superpowers/specs/2026-07-21-architecture-diagrams.md) | 已完成并审查 | 类图、模块调用关系图和主要业务时序图 |
 | [讨论与审计记录](superpowers/specs/2026-07-21-documentation-discussion-record.md) | 已完成并审查 | 范围选择、方案比较、审计发现、风险和后续建议 |
 | [文档基线设计方案](superpowers/specs/2026-07-21-documentation-baseline-design.md) | 已确认 | 本轮文档基线的范围、组织方式、事实提取和一致性规则 |
+| [需求文档按当前代码对齐设计](superpowers/specs/2026-07-22-requirements-code-alignment-design.md) | 已确认 | 当前需规、历史需规、原始需求和讨论记录的分层修订规则 |
 
-以上五份交付文档共同构成当前基线；设计方案是已确认的编制依据，不替代需求、概要设计或详细设计。
+以上当前交付文档共同构成当前基线；当前需求基线是唯一有效的需求与验收文档，设计方案是已确认的编制依据，不替代需求、概要设计或详细设计。
 
 ## 实施记录
 
 | 文档 | 状态 | 说明 |
 |------|------|------|
 | [文档基线执行计划](superpowers/plans/2026-07-21-documentation-baseline.md) | 已执行（文档任务） | 本轮需求、设计、图表、讨论记录和导航完善任务的执行依据；不表示风险台账中的代码整改已经实施 |
+| [需求文档按代码对齐计划](superpowers/plans/2026-07-22-requirements-code-alignment.md) | 执行中 | 需求基线复核、历史状态声明、讨论记录、导航和一致性验证步骤 |
 
 ## 推荐阅读顺序
 
@@ -40,8 +42,8 @@
 | 2026-06-17 | [软件设计说明](superpowers/specs/2026-06-17-software-design-spec.md) |
 | 2026-06-25 | [架构图](superpowers/specs/2026-06-25-architecture-diagrams.md) |
 | 2026-06-26 | [ActionRegistry 设计](superpowers/specs/2026-06-26-action-registry-design.md) |
-| 2026-06-26 | [软件需求规格](superpowers/specs/2026-06-26-software-requirements-spec.md) |
-| 2026-07-06 | [软件需求规格](superpowers/specs/2026-07-06-software-requirements-spec.md) |
+| 2026-06-26 | [历史软件需求规格（已失效）](superpowers/specs/2026-06-26-software-requirements-spec.md) |
+| 2026-07-06 | [历史软件需求规格（已失效）](superpowers/specs/2026-07-06-software-requirements-spec.md) |
 | 2026-07-06 | [软件设计说明](superpowers/specs/2026-07-06-software-design-spec.md) |
 
 ## 文档维护规则
