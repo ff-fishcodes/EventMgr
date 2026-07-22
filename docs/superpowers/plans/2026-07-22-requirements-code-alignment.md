@@ -349,15 +349,65 @@ const files = [
     .map(name => `docs/superpowers/specs/${name}`),
 ];
 
+function proseOnly(text) {
+  let fence = null;
+  const lines = text.split(/\r?\n/).map(line => {
+    const opening = line.match(/^\s*(`{3,}|~{3,})/);
+    if (!fence && opening) {
+      fence = {char: opening[1][0], length: opening[1].length};
+      return '';
+    }
+    if (fence) {
+      const closing = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+      if (closing && closing[1][0] === fence.char && closing[1].length >= fence.length) {
+        fence = null;
+      }
+      return '';
+    }
+    return line;
+  });
+  return lines.join('\n').replace(/(`+)[\s\S]*?\1/g, '');
+}
+
+function githubSlug(heading) {
+  return heading
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')
+    .replace(/<[^>]*>/g, '')
+    .replace(/[\p{P}\p{S}]/gu, character =>
+      character === '-' || character === '_' ? character : '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-');
+}
+
 function anchorsFor(file) {
-  const text = fs.readFileSync(file, 'utf8');
+  const text = proseOnly(fs.readFileSync(file, 'utf8'));
   const anchors = new Set();
-  const duplicates = [];
-  for (const match of text.matchAll(/<a\s+id=["']([^"']+)["'][^>]*>/gi)) {
-    if (anchors.has(match[1])) duplicates.push(`${file}#${match[1]}`);
+  const explicitCounts = new Map();
+  for (const match of text.matchAll(/<a\s+[^>]*\bid=["']([^"']+)["'][^>]*>/gi)) {
     anchors.add(match[1]);
+    explicitCounts.set(match[1], (explicitCounts.get(match[1]) || 0) + 1);
   }
-  return {anchors, duplicates};
+
+  const slugCounts = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^ {0,3}#{1,6}(?:[ \t]+|$)(.*)$/);
+    if (!match) continue;
+    const heading = match[1].replace(/\s+#+\s*$/, '');
+    const base = githubSlug(heading);
+    const count = slugCounts.get(base) || 0;
+    anchors.add(count === 0 ? base : `${base}-${count}`);
+    slugCounts.set(base, count + 1);
+  }
+
+  return {
+    anchors,
+    duplicates: [...explicitCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([id, count]) => `${file}#${id} (${count})`),
+  };
 }
 
 let links = 0;
@@ -370,17 +420,28 @@ for (const file of [...new Set(files)].sort()) {
   const own = anchorsFor(file);
   duplicateAnchors.push(...own.duplicates);
   anchorCache.set(path.resolve(file), own.anchors);
-  const text = fs.readFileSync(file, 'utf8');
-  for (const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
-    let target = match[1].trim().replace(/^<|>$/g, '');
-    if (/^(https?:|mailto:)/.test(target)) continue;
+  const text = proseOnly(fs.readFileSync(file, 'utf8'));
+  for (const match of text.matchAll(/!?\[[^\]]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+[^)]*)?\)/g)) {
+    let target = match[1];
+    if (target.startsWith('<') && target.endsWith('>')) target = target.slice(1, -1);
+    if (/^(https?:|mailto:)/i.test(target)) continue;
     links += 1;
     const hashAt = target.indexOf('#');
     const rawPath = hashAt >= 0 ? target.slice(0, hashAt) : target;
-    const anchor = hashAt >= 0 ? decodeURIComponent(target.slice(hashAt + 1)) : '';
-    const resolved = path.resolve(path.dirname(file), rawPath || path.basename(file));
-    if (!fs.existsSync(resolved)) {
-      errors.push(`${file}: missing ${target}`);
+    let decodedPath;
+    let anchor;
+    try {
+      decodedPath = decodeURIComponent(rawPath);
+      anchor = hashAt >= 0 ? decodeURIComponent(target.slice(hashAt + 1)) : '';
+    } catch (error) {
+      errors.push(`${file}: invalid URI encoding ${target}`);
+      continue;
+    }
+    const resolved = decodedPath
+      ? path.resolve(path.dirname(file), decodedPath)
+      : path.resolve(file);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+      errors.push(`${file}: missing file ${target}`);
       continue;
     }
     if (anchor) {
