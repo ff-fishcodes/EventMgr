@@ -20,6 +20,7 @@ namespace {
 
 const QString kBoilerEvent = QString::fromUtf8("锅炉-3-temp_high");
 const QString kOtherEvent = QString::fromUtf8("锅炉-3-pressure_low");
+const QString kUntouchedEvent = QString::fromUtf8("锅炉-5-overload");
 
 template<typename T>
 T* requiredChild(QObject* parent, const char* objectName) {
@@ -108,6 +109,39 @@ bool checked(QCheckBox* checkBox) {
     return checkBox && checkBox->isChecked();
 }
 
+bool containsSourceLabel(const QString& text) {
+    return text.contains(QString::fromUtf8("默认")) ||
+           text.contains(QString::fromUtf8("专属"));
+}
+
+bool exposesSourceLabels(QWidget* widget) {
+    const QList<QLabel*> labels = widget->findChildren<QLabel*>();
+    for (int i = 0; i < labels.size(); ++i) {
+        if (labels[i]->isVisible() && containsSourceLabel(labels[i]->text())) return true;
+    }
+
+    const QList<QTableWidget*> tables = widget->findChildren<QTableWidget*>();
+    for (int tableIndex = 0; tableIndex < tables.size(); ++tableIndex) {
+        QTableWidget* table = tables[tableIndex];
+        if (!table->isVisible()) continue;
+        for (int column = 0; column < table->columnCount(); ++column) {
+            QTableWidgetItem* header = table->horizontalHeaderItem(column);
+            if (header && containsSourceLabel(header->text())) return true;
+        }
+        for (int row = 0; row < table->rowCount(); ++row) {
+            QTableWidgetItem* header = table->verticalHeaderItem(row);
+            if (header && containsSourceLabel(header->text())) return true;
+        }
+        for (int row = 0; row < table->rowCount(); ++row) {
+            for (int column = 0; column < table->columnCount(); ++column) {
+                QTableWidgetItem* item = table->item(row, column);
+                if (item && containsSourceLabel(item->text())) return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 class TestableAlarmCatalogWidget : public AlarmCatalogWidget {
@@ -185,9 +219,13 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     QLabel* selected = requiredChild<QLabel>(&widget, "selectedEventLabel");
     QVERIFY(selected);
     QCOMPARE(catalog->columnCount(), 6);
+    QCOMPARE(active->columnCount(), 2);
+    QCOMPARE(clear->columnCount(), 2);
 
     selectCatalogRow(catalog, kBoilerEvent);
     QVERIFY(selected->text().contains(kBoilerEvent));
+    QVERIFY2(!exposesSourceLabels(&widget),
+             "The linkage UI must not expose default/dedicated source labels");
 
     const int stopRow = actionRow(active, "cooler_stop", QString::fromUtf8("关冷却塔"));
     const int fanRow = actionRow(active, "cooler_fan", QString::fromUtf8("调风扇"));
@@ -256,16 +294,38 @@ void AlarmCatalogWidgetTest::preservesEditsAcrossSelectionChanges() {
 }
 
 void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
+    LinkageEngine::instance().configureEvent(
+        kBoilerEvent.toStdString(), {"cooler_fan"}, {"buzzer_alert"});
+    const BackendBridge::EventActionGroups configuredBoilerGroups =
+        bridge_.getEventActionGroups(kBoilerEvent, static_cast<int>(EventLevel::Emergency));
+    QCOMPARE(phaseActionEnabled(configuredBoilerGroups, "cooler_fan", true), true);
+    QCOMPARE(phaseActionEnabled(configuredBoilerGroups, "buzzer_alert", false), true);
+
     AlarmCatalogWidget widget(&bridge_);
     widget.show();
     QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
+    QTableWidget* clear = requiredChild<QTableWidget>(&widget, "clearActionTable");
+    QVERIFY(clear);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
     QLabel* status = requiredChild<QLabel>(&widget, "statusLabel");
     QVERIFY(status);
+
+    const int untouchedRow = catalogRow(catalog, kUntouchedEvent);
+    QCOMPARE(checked(tableCheckBox(catalog, untouchedRow, 4)), false);
+    const BackendBridge::EventActionGroups untouchedBefore =
+        bridge_.getEventActionGroups(kUntouchedEvent,
+                                     static_cast<int>(EventLevel::Emergency));
+    QCOMPARE(phaseActionEnabled(untouchedBefore, "cooler_stop", true), true);
+    ConfigManager::instance().setShield(kUntouchedEvent.toStdString());
+    LinkageEngine::instance().disableAction(
+        kUntouchedEvent.toStdString(), "cooler_stop", true);
+    QVERIFY(ConfigManager::instance().isShielded(kUntouchedEvent.toStdString()));
+    QVERIFY(LinkageEngine::instance().isActionDisabled(
+        kUntouchedEvent.toStdString(), "cooler_stop", true));
 
     selectCatalogRow(catalog, kBoilerEvent);
     const int row = catalogRow(catalog, kBoilerEvent);
@@ -273,6 +333,9 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
     toggle(tableCheckBox(catalog, row, 4), true);
     toggle(tableCheckBox(active,
                          actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
+           false);
+    toggle(tableCheckBox(clear,
+                         actionRow(clear, "buzzer_alert", QString::fromUtf8("蜂鸣器")), 1),
            false);
     apply->click();
     QCoreApplication::processEvents(QEventLoop::AllEvents);
@@ -287,26 +350,36 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
         bridge_.getEventActionGroups(kBoilerEvent, static_cast<int>(EventLevel::Emergency));
     QCOMPARE(phaseActionEnabled(boilerGroups, "cooler_fan", true), false);
     QCOMPARE(phaseActionEnabled(boilerGroups, "cooler_stop", true), true);
-    QCOMPARE(boilerGroups.clearActions.size(), 0);
+    QCOMPARE(phaseActionEnabled(boilerGroups, "buzzer_alert", false), false);
+    QVERIFY(LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "buzzer_alert", false));
+    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "buzzer_alert", true));
 
     const BackendBridge::EventActionGroups otherGroups =
-        bridge_.getEventActionGroups(QString::fromUtf8("锅炉-5-overload"),
+        bridge_.getEventActionGroups(kUntouchedEvent,
                                      static_cast<int>(EventLevel::Emergency));
-    QCOMPARE(phaseActionEnabled(otherGroups, "cooler_stop", true), true);
+    QCOMPARE(phaseActionEnabled(otherGroups, "cooler_stop", true), false);
     QCOMPARE(otherGroups.clearActions.size(), 0);
-    QVERIFY(!ConfigManager::instance().hasDowngrade("锅炉-5-overload"));
-    QVERIFY(!ConfigManager::instance().isShielded("锅炉-5-overload"));
+    QVERIFY(!ConfigManager::instance().hasDowngrade(kUntouchedEvent.toStdString()));
+    QVERIFY(ConfigManager::instance().isShielded(kUntouchedEvent.toStdString()));
+    QVERIFY(LinkageEngine::instance().isActionDisabled(
+        kUntouchedEvent.toStdString(), "cooler_stop", true));
     QVERIFY(!apply->isEnabled());
     QCOMPARE(status->text(), QString::fromUtf8("配置已应用"));
 }
 
 void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
+    LinkageEngine::instance().configureEvent(
+        kBoilerEvent.toStdString(), {"cooler_fan"}, {"buzzer_alert"});
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
     QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
+    QTableWidget* clear = requiredChild<QTableWidget>(&widget, "clearActionTable");
+    QVERIFY(clear);
     QLabel* selected = requiredChild<QLabel>(&widget, "selectedEventLabel");
     QVERIFY(selected);
     QLabel* status = requiredChild<QLabel>(&widget, "statusLabel");
@@ -320,6 +393,9 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
     toggle(tableCheckBox(active,
                          actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
            false);
+    toggle(tableCheckBox(clear,
+                         actionRow(clear, "buzzer_alert", QString::fromUtf8("蜂鸣器")), 1),
+           false);
 
     widget.enqueueDecision(AlarmCatalogWidget::DirtyDecision::Apply);
     widget.requestReload();
@@ -329,6 +405,10 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
     QVERIFY(ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
     QVERIFY(LinkageEngine::instance().isActionDisabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
+    QVERIFY(LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "buzzer_alert", false));
+    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+        kBoilerEvent.toStdString(), "buzzer_alert", true));
     const int reloadedRow = catalogRow(catalog, kBoilerEvent);
     QCOMPARE(catalog->currentRow(), reloadedRow);
     QCOMPARE(catalog->item(reloadedRow, 0)->text(), kBoilerEvent);
@@ -340,6 +420,10 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
     QCOMPARE(checked(tableCheckBox(
                  active,
                  actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1)),
+             false);
+    QCOMPARE(checked(tableCheckBox(
+                 clear,
+                 actionRow(clear, "buzzer_alert", QString::fromUtf8("蜂鸣器")), 1)),
              false);
     QVERIFY(!apply->isEnabled());
     QCOMPARE(status->text(), QString::fromUtf8("配置已应用"));
@@ -391,8 +475,12 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
                  actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1)),
              true);
     QVERIFY(!apply->isEnabled());
+    const int catalogSize = bridge_.getCatalog().size();
+    QCOMPARE(catalog->rowCount(), catalogSize);
     QCOMPARE(status->text(),
-             QString::fromUtf8("共 8 个报警定义，当前屏蔽 1 个"));
+             QString::fromUtf8("共 %1 个报警定义，当前屏蔽 %2 个")
+                 .arg(catalogSize)
+                 .arg(bridge_.shieldCount()));
 }
 
 void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
@@ -406,6 +494,8 @@ void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
     QVERIFY(selected);
     QLabel* status = requiredChild<QLabel>(&widget, "statusLabel");
     QVERIFY(status);
+    QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
+    QVERIFY(apply);
     selectCatalogRow(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
@@ -431,6 +521,7 @@ void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
     QVERIFY(!ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
     QVERIFY(!LinkageEngine::instance().isActionDisabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
+    QVERIFY(apply->isEnabled());
     QCOMPARE(status->text(), statusBefore);
 }
 
