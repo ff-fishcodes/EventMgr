@@ -109,33 +109,29 @@ bool checked(QCheckBox* checkBox) {
     return checkBox && checkBox->isChecked();
 }
 
-bool containsSourceLabel(const QString& text) {
+bool containsSourceMetadata(const QString& text) {
     return text.contains(QString::fromUtf8("默认")) ||
            text.contains(QString::fromUtf8("专属"));
 }
 
-bool exposesSourceLabels(QWidget* widget) {
-    const QList<QLabel*> labels = widget->findChildren<QLabel*>();
-    for (int i = 0; i < labels.size(); ++i) {
-        if (labels[i]->isVisible() && containsSourceLabel(labels[i]->text())) return true;
+bool actionTableExposesSourceMetadata(QTableWidget* table) {
+    for (int column = 0; column < table->columnCount(); ++column) {
+        QTableWidgetItem* header = table->horizontalHeaderItem(column);
+        if (header && containsSourceMetadata(header->text())) return true;
     }
-
-    const QList<QTableWidget*> tables = widget->findChildren<QTableWidget*>();
-    for (int tableIndex = 0; tableIndex < tables.size(); ++tableIndex) {
-        QTableWidget* table = tables[tableIndex];
-        if (!table->isVisible()) continue;
+    for (int row = 0; row < table->rowCount(); ++row) {
         for (int column = 0; column < table->columnCount(); ++column) {
-            QTableWidgetItem* header = table->horizontalHeaderItem(column);
-            if (header && containsSourceLabel(header->text())) return true;
-        }
-        for (int row = 0; row < table->rowCount(); ++row) {
-            QTableWidgetItem* header = table->verticalHeaderItem(row);
-            if (header && containsSourceLabel(header->text())) return true;
-        }
-        for (int row = 0; row < table->rowCount(); ++row) {
-            for (int column = 0; column < table->columnCount(); ++column) {
-                QTableWidgetItem* item = table->item(row, column);
-                if (item && containsSourceLabel(item->text())) return true;
+            QTableWidgetItem* item = table->item(row, column);
+            if (item && containsSourceMetadata(item->text())) return true;
+            QWidget* cell = table->cellWidget(row, column);
+            if (!cell) continue;
+            QLabel* directLabel = qobject_cast<QLabel*>(cell);
+            if (directLabel && directLabel->isVisible() &&
+                containsSourceMetadata(directLabel->text())) return true;
+            const QList<QLabel*> labels = cell->findChildren<QLabel*>();
+            for (int i = 0; i < labels.size(); ++i) {
+                if (labels[i]->isVisible() &&
+                    containsSourceMetadata(labels[i]->text())) return true;
             }
         }
     }
@@ -221,11 +217,21 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     QCOMPARE(catalog->columnCount(), 6);
     QCOMPARE(active->columnCount(), 2);
     QCOMPARE(clear->columnCount(), 2);
+    QVERIFY(active->horizontalHeaderItem(0));
+    QVERIFY(active->horizontalHeaderItem(1));
+    QVERIFY(clear->horizontalHeaderItem(0));
+    QVERIFY(clear->horizontalHeaderItem(1));
+    QCOMPARE(active->horizontalHeaderItem(0)->text(), QString::fromUtf8("联动动作"));
+    QCOMPARE(active->horizontalHeaderItem(1)->text(), QString::fromUtf8("启用"));
+    QCOMPARE(clear->horizontalHeaderItem(0)->text(), QString::fromUtf8("联动动作"));
+    QCOMPARE(clear->horizontalHeaderItem(1)->text(), QString::fromUtf8("启用"));
 
     selectCatalogRow(catalog, kBoilerEvent);
     QVERIFY(selected->text().contains(kBoilerEvent));
-    QVERIFY2(!exposesSourceLabels(&widget),
-             "The linkage UI must not expose default/dedicated source labels");
+    QVERIFY2(!actionTableExposesSourceMetadata(active),
+             "The active action table must not expose default/dedicated metadata");
+    QVERIFY2(!actionTableExposesSourceMetadata(clear),
+             "The clear action table must not expose default/dedicated metadata");
 
     const int stopRow = actionRow(active, "cooler_stop", QString::fromUtf8("关冷却塔"));
     const int fanRow = actionRow(active, "cooler_fan", QString::fromUtf8("调风扇"));
@@ -321,9 +327,15 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
                                      static_cast<int>(EventLevel::Emergency));
     QCOMPARE(phaseActionEnabled(untouchedBefore, "cooler_stop", true), true);
     ConfigManager::instance().setShield(kUntouchedEvent.toStdString());
+    ConfigManager::instance().setDowngrade(
+        kUntouchedEvent.toStdString(), EventLevel::Info);
     LinkageEngine::instance().disableAction(
         kUntouchedEvent.toStdString(), "cooler_stop", true);
     QVERIFY(ConfigManager::instance().isShielded(kUntouchedEvent.toStdString()));
+    QVERIFY(ConfigManager::instance().hasDowngrade(kUntouchedEvent.toStdString()));
+    QCOMPARE(static_cast<int>(ConfigManager::instance().getEffectiveLevel(
+                 kUntouchedEvent.toStdString(), EventLevel::Emergency)),
+             static_cast<int>(EventLevel::Info));
     QVERIFY(LinkageEngine::instance().isActionDisabled(
         kUntouchedEvent.toStdString(), "cooler_stop", true));
 
@@ -361,7 +373,10 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
                                      static_cast<int>(EventLevel::Emergency));
     QCOMPARE(phaseActionEnabled(otherGroups, "cooler_stop", true), false);
     QCOMPARE(otherGroups.clearActions.size(), 0);
-    QVERIFY(!ConfigManager::instance().hasDowngrade(kUntouchedEvent.toStdString()));
+    QVERIFY(ConfigManager::instance().hasDowngrade(kUntouchedEvent.toStdString()));
+    QCOMPARE(static_cast<int>(ConfigManager::instance().getEffectiveLevel(
+                 kUntouchedEvent.toStdString(), EventLevel::Emergency)),
+             static_cast<int>(EventLevel::Info));
     QVERIFY(ConfigManager::instance().isShielded(kUntouchedEvent.toStdString()));
     QVERIFY(LinkageEngine::instance().isActionDisabled(
         kUntouchedEvent.toStdString(), "cooler_stop", true));
