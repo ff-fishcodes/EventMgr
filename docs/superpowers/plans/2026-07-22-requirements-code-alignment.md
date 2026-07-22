@@ -34,7 +34,7 @@
 - Reference: `backend/event_types.h`
 - Reference: `frontend/backend_bridge.cpp`
 
-- [ ] **Step 1: Capture the current code evidence for EventId**
+- [x] **Step 1: Capture the current code evidence for EventId**
 
 Run:
 
@@ -45,7 +45,7 @@ rg -n 'using EventId|event\.id =|makeEventId|clearEvent\(|std::atoi' \
 
 Expected: output shows `EventId` as `std::string`, device ID construction, pure-system assignment to `eventName`, associated-system three-part construction, and full-ID clear parsing.
 
-- [ ] **Step 2: Add a version and status block to the current baseline**
+- [x] **Step 2: Add a version and status block to the current baseline**
 
 Immediately after the H1, add:
 
@@ -61,7 +61,7 @@ Change the opening paragraph date from “2026-07-21 工作树” to “截至 2
 本次文档分层和历史保留规则见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)。
 ```
 
-- [ ] **Step 3: Add the document authority requirement**
+- [x] **Step 3: Add the document authority requirement**
 
 Append this item to section 1:
 
@@ -69,7 +69,7 @@ Append this item to section 1:
 - **CB-DOC-004**：本文件是当前唯一有效的需求与验收基线。`doc/requirment.md`、2026-06-26 和 2026-07-06 需求规格保留为原始输入或历史版本；其中与当前代码不一致的接口、依赖、标识和行为不得用于当前开发或验收。证据：`doc/requirment.md`、`docs/superpowers/specs/2026-06-26-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-06-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-22-requirements-code-alignment-design.md`。
 ```
 
-- [ ] **Step 4: Make the EventId parsing limitations normative**
+- [x] **Step 4: Make the EventId parsing limitations normative**
 
 Append this item to section 4:
 
@@ -86,7 +86,7 @@ In detailed-design section 15, make these exact tracking updates:
 | [设备/系统标识与解析](#id-format) | `CB-ID-001`、`CB-ID-002`、`CB-ID-006`、`CB-LIM-001`、`CB-LIM-002` |
 ```
 
-- [ ] **Step 5: Verify current-baseline terminology**
+- [x] **Step 5: Verify current-baseline terminology**
 
 Run:
 
@@ -99,7 +99,7 @@ rg -n 'CB-DOC-004|CB-ID-006|deviceName-frameID-alarmField|deviceName-0-eventName
 
 Expected: the first command has no output; the second command finds the new authority and parsing requirements plus all three current EventId rules.
 
-- [ ] **Step 6: Commit the current baseline update**
+- [x] **Step 6: Commit the current baseline update**
 
 ```bash
 git add docs/superpowers/specs/2026-07-21-software-requirements-baseline.md \
@@ -114,7 +114,7 @@ git commit -m "docs: align current requirements baseline with code"
 - Modify: `docs/superpowers/specs/2026-06-26-software-requirements-spec.md`
 - Modify: `docs/superpowers/specs/2026-07-06-software-requirements-spec.md`
 
-- [ ] **Step 1: Add the original-input notice without rewriting the source text**
+- [x] **Step 1: Add the original-input notice without rewriting the source text**
 
 Insert before the existing first line of `doc/requirment.md`:
 
@@ -127,7 +127,7 @@ Insert before the existing first line of `doc/requirment.md`:
 
 Do not change any existing full-width Markdown heading or original sentence below the notice.
 
-- [ ] **Step 2: Add the v1.1 historical-version notice**
+- [x] **Step 2: Add the v1.1 historical-version notice**
 
 Insert after the H1 in `2026-06-26-software-requirements-spec.md`:
 
@@ -138,7 +138,7 @@ Insert after the H1 in `2026-06-26-software-requirements-spec.md`:
 
 Keep the original `版本：v1.1` and `状态：已评审` lines as historical metadata.
 
-- [ ] **Step 3: Add the v2.2 historical-version notice**
+- [x] **Step 3: Add the v2.2 historical-version notice**
 
 Insert after the H1 in `2026-07-06-software-requirements-spec.md`:
 
@@ -149,7 +149,7 @@ Insert after the H1 in `2026-07-06-software-requirements-spec.md`:
 
 Keep the original document number, version, date, change description, and body unchanged.
 
-- [ ] **Step 4: Prove that only the headers changed**
+- [x] **Step 4: Prove that only the headers changed**
 
 Run:
 
@@ -162,7 +162,7 @@ git diff --word-diff=porcelain -- \
 
 Expected: additions occur only before the original raw requirement heading or immediately below each historical H1; no original line is deleted.
 
-- [ ] **Step 5: Verify every historical requirement points to the current baseline**
+- [x] **Step 5: Verify every historical requirement points to the current baseline**
 
 Run:
 
@@ -177,7 +177,7 @@ done
 
 Expected: exit status 0 with no output.
 
-- [ ] **Step 6: Commit the historical status notices**
+- [x] **Step 6: Commit the historical status notices**
 
 ```bash
 git add doc/requirment.md \
@@ -194,7 +194,7 @@ git commit -m "docs: classify historical requirements versions"
 - Modify: `README.md`
 - Modify: `docs/README.md`
 
-- [ ] **Step 1: Append the later-status note to the 2026-06-17 discussion record**
+- [x] **Step 1: Append the later-status note to the 2026-06-17 discussion record**
 
 Append this section without changing the prior numbered discussion:
 
@@ -207,7 +207,7 @@ Append this section without changing the prior numbered discussion:
 用户确认需求文档以当前代码为准，并采用分层修订：当前需求基线作为唯一有效需求和验收依据；本文及早期需求、设计继续作为历史讨论记录，不回写早期结论。当前生效入口为[当前需求基线](./2026-07-21-software-requirements-baseline.md)，修订范围与保留规则见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)。
 ```
 
-- [ ] **Step 2: Append the current decision record**
+- [x] **Step 2: Append the current decision record**
 
 Append this section to `2026-07-21-documentation-discussion-record.md`:
 
@@ -232,7 +232,7 @@ Append this section to `2026-07-21-documentation-discussion-record.md`:
 修订设计见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)，执行步骤见[需求文档按代码对齐计划](../plans/2026-07-22-requirements-code-alignment.md)。最终验证结果在本节后续小节补录。
 ```
 
-- [ ] **Step 3: Update the project README requirement entry**
+- [x] **Step 3: Update the project README requirement entry**
 
 In the README documentation section, ensure the current requirement link contains this qualification:
 
@@ -242,7 +242,7 @@ In the README documentation section, ensure the current requirement link contain
 
 Do not duplicate the existing EventId table; it already states the three current formats.
 
-- [ ] **Step 4: Update the document center**
+- [x] **Step 4: Update the document center**
 
 In `docs/README.md`:
 
@@ -262,7 +262,7 @@ In `docs/README.md`:
 
 5. Change the two historical requirements labels to “历史软件需求规格（已失效）”.
 
-- [ ] **Step 5: Check discussion and navigation links**
+- [x] **Step 5: Check discussion and navigation links**
 
 Run:
 
@@ -275,7 +275,7 @@ rg -n '唯一当前需求|历史归档|已失效|2026-07-22-requirements-code-al
 
 Expected: all four files describe the same authority rule and both discussion records link to the current baseline.
 
-- [ ] **Step 6: Commit the decision and navigation update**
+- [x] **Step 6: Commit the decision and navigation update**
 
 ```bash
 git add README.md docs/README.md \
@@ -291,7 +291,7 @@ git commit -m "docs: record current requirements authority"
 - Modify: `docs/README.md`
 - Verify: all files changed by Tasks 1-3
 
-- [ ] **Step 1: Check formatting and the source-code boundary**
+- [x] **Step 1: Check formatting and the source-code boundary**
 
 Run:
 
@@ -302,7 +302,7 @@ git diff --name-only HEAD~3..HEAD | rg -v '^(README\.md|doc/|docs/)'
 
 Expected: `git diff --check` exits 0; the second command prints nothing, proving no source file changed.
 
-- [ ] **Step 2: Verify current EventId consistency**
+- [x] **Step 2: Verify current EventId consistency**
 
 Run:
 
@@ -316,7 +316,7 @@ rg -n 'deviceName-frameID-alarmField|deviceName-0-eventName|纯系统事件.*eve
 
 Expected: each current document that defines EventId uses the same three formats; no current document defines `protocolID` or `事件名:下位机标识` as the current format.
 
-- [ ] **Step 3: Verify requirements authority markers**
+- [x] **Step 3: Verify requirements authority markers**
 
 Run:
 
@@ -329,7 +329,7 @@ rg -q '唯一需求与验收基线' docs/superpowers/specs/2026-07-21-software-r
 
 Expected: all commands exit 0.
 
-- [ ] **Step 4: Validate relative Markdown links and explicit anchors**
+- [x] **Step 4: Validate relative Markdown links and explicit anchors**
 
 Run:
 
@@ -461,7 +461,7 @@ NODE
 
 Expected: exit status 0, `missing=0`, and `duplicate-explicit-anchors=0`. Record the actual file/link/anchor counts rather than copying earlier counts.
 
-- [ ] **Step 5: Verify requirement identifier traceability after adding two IDs**
+- [x] **Step 5: Verify requirement identifier traceability after adding two IDs**
 
 Run:
 
@@ -480,7 +480,7 @@ wc -l /tmp/eventmgr-requirement-ids.txt
 
 Expected: exit status 0, no missing trace messages, and count `73`; the pre-change baseline contained 71 unique IDs and this plan adds exactly `CB-DOC-004` and `CB-ID-006`.
 
-- [ ] **Step 6: Append actual verification evidence**
+- [x] **Step 6: Append actual verification evidence**
 
 Under section 12 of `2026-07-21-documentation-discussion-record.md`, append `### 12.4 验证结果` with:
 
@@ -493,11 +493,11 @@ Under section 12 of `2026-07-21-documentation-discussion-record.md`, append `###
 
 Use only values returned by Steps 1-5. Do not reuse the older 71/71 or 248-link counts unless the new run independently returns them.
 
-- [ ] **Step 7: Mark the plan status complete in navigation**
+- [x] **Step 7: Mark the plan status complete in navigation**
 
 In `docs/README.md`, change only the new alignment plan row from `执行中` to `已执行（文档任务）` after Steps 1-6 pass.
 
-- [ ] **Step 8: Commit the verification record**
+- [x] **Step 8: Commit the verification record**
 
 ```bash
 git add docs/README.md \
