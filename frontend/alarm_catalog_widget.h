@@ -46,10 +46,10 @@ private:
         bool isDirty() const;
     };
 
+    void reloadFromBackend();
     void buildCatalogRows();
     void selectInitialEvent();
-    void switchSelectedEvent(int currentRow, int previousRow);
-    void persistVisibleActions();
+    void switchSelectedEvent(int currentRow);
     void renderSelectedActions();
     void renderActionTable(QTableWidget* table,
                            const QVector<BackendBridge::ActionEntry>& orderedActions,

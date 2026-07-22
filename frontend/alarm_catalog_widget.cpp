@@ -3,9 +3,11 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QHeaderView>
+#include <QLabel>
 #include <QMessageBox>
 #include <QSignalBlocker>
 #include <QTableWidgetItem>
+#include <QVBoxLayout>
 
 AlarmCatalogWidget::PendingEventConfig::PendingEventConfig()
     : originalDowngraded(false),
@@ -59,6 +61,14 @@ AlarmCatalogWidget::AlarmCatalogWidget(BackendBridge* bridge, QWidget* parent)
 AlarmCatalogWidget::~AlarmCatalogWidget() {}
 
 void AlarmCatalogWidget::loadCatalog() {
+    if (hasDirtyChanges()) {
+        requestReload();
+        return;
+    }
+    reloadFromBackend();
+}
+
+void AlarmCatalogWidget::reloadFromBackend() {
     // loadingUi_ prevents table reconstruction from becoming a staged edit.
     loadingUi_ = true;
     catalog_ = bridge_->getCatalog();
@@ -196,34 +206,12 @@ void AlarmCatalogWidget::selectInitialEvent() {
     ui.selectedEventLabel->setText(selectedEventId_);
 }
 
-void AlarmCatalogWidget::switchSelectedEvent(int currentRow, int previousRow) {
-    Q_UNUSED(previousRow);
+void AlarmCatalogWidget::switchSelectedEvent(int currentRow) {
     if (loadingUi_ || currentRow < 0 || currentRow >= catalog_.size()) return;
 
-    persistVisibleActions();
     selectedEventId_ = catalog_[currentRow].id;
     ui.selectedEventLabel->setText(selectedEventId_);
     renderSelectedActions();
-}
-
-void AlarmCatalogWidget::persistVisibleActions() {
-    if (loadingUi_ || selectedEventId_.isEmpty() ||
-        !pendingByEvent_.contains(selectedEventId_)) return;
-
-    QTableWidget* tables[] = {ui.activeActionTable, ui.clearActionTable};
-    for (int phaseIndex = 0; phaseIndex < 2; ++phaseIndex) {
-        QTableWidget* table = tables[phaseIndex];
-        QMap<QString, bool>& values = phaseIndex == 0
-            ? pendingByEvent_[selectedEventId_].activeActions
-            : pendingByEvent_[selectedEventId_].clearActions;
-        for (int row = 0; row < table->rowCount(); ++row) {
-            QCheckBox* checkBox =
-                qobject_cast<QCheckBox*>(table->cellWidget(row, 1));
-            if (!checkBox) continue;
-            values[checkBox->property("actionName").toString()] =
-                checkBox->isChecked();
-        }
-    }
 }
 
 void AlarmCatalogWidget::renderSelectedActions() {
@@ -262,9 +250,28 @@ void AlarmCatalogWidget::renderActionTable(
     for (int row = 0; row < orderedActions.size(); ++row) {
         const BackendBridge::ActionEntry& action = orderedActions[row];
         const QString eventId = selectedEventId_;
-        QTableWidgetItem* nameItem = new QTableWidgetItem(action.displayName);
+        QTableWidgetItem* nameItem = new QTableWidgetItem();
         nameItem->setData(Qt::UserRole, action.name);
         table->setItem(row, 0, nameItem);
+
+        // Two compact lines distinguish the operator-facing label from the
+        // exact backend key without adding source metadata or another column.
+        QWidget* nameCell = new QWidget(table);
+        nameCell->setProperty("actionName", action.name);
+        nameCell->setProperty("displayName", action.displayName);
+        QVBoxLayout* nameLayout = new QVBoxLayout(nameCell);
+        nameLayout->setContentsMargins(6, 2, 4, 2);
+        nameLayout->setSpacing(0);
+        QLabel* displayLabel = new QLabel(action.displayName, nameCell);
+        displayLabel->setStyleSheet(
+            QString::fromLatin1("font-weight:600; color:#263238;"));
+        QLabel* internalLabel = new QLabel(action.name, nameCell);
+        internalLabel->setStyleSheet(
+            QString::fromLatin1("font-size:11px; color:#607d8b;"));
+        nameLayout->addWidget(displayLabel);
+        nameLayout->addWidget(internalLabel);
+        table->setCellWidget(row, 0, nameCell);
+        table->setRowHeight(row, 44);
 
         QCheckBox* checkBox = new QCheckBox(table);
         const PendingEventConfig& pending = pendingByEvent_[eventId];
@@ -335,9 +342,8 @@ AlarmCatalogWidget::confirmDirtyChanges() {
 }
 
 void AlarmCatalogWidget::requestReload() {
-    persistVisibleActions();
     if (!hasDirtyChanges()) {
-        loadCatalog();
+        reloadFromBackend();
         return;
     }
 
@@ -347,32 +353,11 @@ void AlarmCatalogWidget::requestReload() {
         on_applyBtn_clicked();
         return;
     }
-    loadCatalog();
+    reloadFromBackend();
 }
 
 void AlarmCatalogWidget::on_applyBtn_clicked() {
-    // Task 6 retains the legacy catalog-only submission. Task 7 will submit
-    // complete pending diffs, including both linkage phases, as one operation.
-    for (int row = 0; row < ui.catalogTable->rowCount(); ++row) {
-        QTableWidgetItem* idItem = ui.catalogTable->item(row, 0);
-        if (!idItem) continue;
-        const QString eventId = idItem->text();
-
-        QCheckBox* downgradeCheckBox =
-            qobject_cast<QCheckBox*>(ui.catalogTable->cellWidget(row, 3));
-        if (downgradeCheckBox && downgradeCheckBox->isChecked()) {
-            bridge_->setDowngrade(eventId, 4);
-        } else {
-            bridge_->removeDowngrade(eventId);
-        }
-
-        QCheckBox* shieldCheckBox =
-            qobject_cast<QCheckBox*>(ui.catalogTable->cellWidget(row, 4));
-        if (shieldCheckBox && shieldCheckBox->isChecked()) {
-            bridge_->setShield(eventId);
-        } else {
-            bridge_->clearShield(eventId);
-        }
-    }
-    loadCatalog();
+    // Task 7 will atomically submit all pending diffs. Until then, preserving
+    // staged UI state is safer than partially writing catalog-only changes.
+    updateDirtyUi();
 }

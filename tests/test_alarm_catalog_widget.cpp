@@ -138,6 +138,23 @@ bool actionTableExposesSourceMetadata(QTableWidget* table) {
     return false;
 }
 
+bool actionIdentityIsVisible(QTableWidget* table, int row,
+                             const QString& actionName,
+                             const QString& displayName) {
+    QTableWidgetItem* item = table->item(row, 0);
+    if (item && item->text().contains(actionName) &&
+        item->text().contains(displayName)) return true;
+
+    QWidget* cell = table->cellWidget(row, 0);
+    if (!cell) return false;
+    const QList<QLabel*> labels = cell->findChildren<QLabel*>();
+    QString visibleText;
+    for (int i = 0; i < labels.size(); ++i) {
+        if (labels[i]->isVisible()) visibleText += labels[i]->text();
+    }
+    return visibleText.contains(actionName) && visibleText.contains(displayName);
+}
+
 } // namespace
 
 class TestableAlarmCatalogWidget : public AlarmCatalogWidget {
@@ -236,6 +253,12 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     const int stopRow = actionRow(active, "cooler_stop", QString::fromUtf8("关冷却塔"));
     const int fanRow = actionRow(active, "cooler_fan", QString::fromUtf8("调风扇"));
     QVERIFY(stopRow < fanRow);
+    QVERIFY2(actionIdentityIsVisible(active, stopRow, "cooler_stop",
+                                     QString::fromUtf8("关冷却塔")),
+             "Each action row must visibly show its display and internal names");
+    QVERIFY2(actionIdentityIsVisible(active, fanRow, "cooler_fan",
+                                     QString::fromUtf8("调风扇")),
+             "Each action row must visibly show its display and internal names");
 
     bool showsEmptyPhase = false;
     bool hasEnabledSwitch = false;
