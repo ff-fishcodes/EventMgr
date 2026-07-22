@@ -4,7 +4,7 @@
 
 本文档以 2026-07-21 工作树中的可验证代码为行为基线，描述当前实现能力、约束和已知限制，不把历史需求或设计意图写成已实现能力。`doc/requirment.md` 仅作为原始需求来源；与代码不一致时，以本基线的“当前实现”和“原始需求差异”为准。
 
-- **CB-DOC-001**：本基线保存已经确认的需求结论及其源码证据链接，不承担讨论对话、方案比较或决策理由的过程记录。上述过程由计划新增的 [2026-07-21 文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md) 承载。证据：`docs/superpowers/plans/2026-07-21-documentation-baseline.md`、`docs/superpowers/specs/2026-07-21-documentation-baseline-design.md`。
+- **CB-DOC-001**：本基线保存已经确认的需求结论及其源码证据链接，不承担讨论对话、方案比较或决策理由的过程记录。上述过程已由完成并审查的 [2026-07-21 文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md) 承载，当前交付与验证状态见该记录的[完成后状态与最终验证](./2026-07-21-documentation-discussion-record.md#11-2026-07-22-完成后状态与最终验证)。证据：`docs/superpowers/plans/2026-07-21-documentation-baseline.md`、`docs/superpowers/specs/2026-07-21-documentation-baseline-design.md`、`docs/superpowers/specs/2026-07-21-documentation-discussion-record.md`。
 - **CB-DOC-002**：每项基线要求使用唯一的 `CB-` 编号，第 9 章给出可判定的验收方法和具体证据路径。证据：本文第 4、5、6、7、9 章。
 - **CB-DOC-003**：本基线不承诺代码未体现的性能、可靠性或持久化能力，也不从局部加锁推导所有组件线程安全。证据：`backend/event_manager.cpp`、`backend/config_manager.cpp`、`backend/linkage_engine.cpp`。
 
@@ -19,7 +19,7 @@
 
 - **CB-ENV-001**：项目语言标准为 C++11；`frontend/frontend.pro` 声明项目基线 Qt 5.15.10，启用 Qt Core、Gui、Widgets、Concurrent，构建方式为对该工程执行 `qmake` 后执行 `make`。证据：`frontend/frontend.pro`。
 - **CB-ENV-002**：后端源码直接依赖 Qt5Core：`EventManager` 和 `ConfigManager` 使用 `QMutex`/`QMutexLocker`，`LinkageEngine` 使用 Qt5Core 中的 `QThreadPool`/`QRunnable`。后端没有调用 `QtConcurrent` API；`frontend.pro` 的 `concurrent` 是完整前端工程声明，不能据此把 Qt5Concurrent 记为后端源码直接依赖。后端最小示例编译应提供 C++11 与 Qt5Core；若演示完整 qmake 工程链接，可由工程文件额外带入 Qt5Concurrent。证据：`backend/event_manager.h`、`backend/event_manager.cpp`、`backend/config_manager.h`、`backend/config_manager.cpp`、`backend/linkage_engine.h`、`backend/linkage_engine.cpp`、`frontend/frontend.pro`。
-- **CB-ENV-003**：2026-07-21 本机验证结果为 qmake 3.1/Qt 5.15.3、Qt5Core 5.15.3、Qt5Concurrent 5.15.3、GCC 11.4.0；对应命令分别为 `qmake -v`、`pkg-config --modversion Qt5Core Qt5Concurrent`、`g++ --version`。这是当日本机结果，不替代项目声明的 Qt 5.15.10；可长期回溯的完整命令输出将在计划新增的 [文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md) 中记录。证据：`frontend/frontend.pro`、上述本机命令、`docs/superpowers/plans/2026-07-21-documentation-baseline.md`。
+- **CB-ENV-003**：2026-07-21 本机验证结果为 qmake 3.1/Qt 5.15.3、Qt5Core 5.15.3、Qt5Concurrent 5.15.3、GCC 11.4.0；对应命令分别为 `qmake -v`、`pkg-config --modversion Qt5Core Qt5Concurrent`、`g++ --version`。这是当日本机结果，不替代项目声明的 Qt 5.15.10；可长期回溯的完整命令输出已记录在[文档讨论与验证记录的验证环境与结果](./2026-07-21-documentation-discussion-record.md#7-2026-07-21-验证环境与结果)中。证据：`frontend/frontend.pro`、上述本机命令、`docs/superpowers/plans/2026-07-21-documentation-baseline.md`、`docs/superpowers/specs/2026-07-21-documentation-discussion-record.md`。
 - **CB-ENV-004**：飞腾 FT/2000 与银河麒麟 V10 是原始目标平台；仓库没有该目标环境的构建或运行验证证据，因而不能宣称已经兼容验收。证据：`doc/requirment.md`。
 
 ## 4. 数据与标识规则

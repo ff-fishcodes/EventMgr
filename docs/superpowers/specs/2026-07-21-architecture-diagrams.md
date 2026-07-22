@@ -6,7 +6,7 @@
 | 项目 | 内容 |
 |---|---|
 | 文档 ID | `EventMgr-AD-20260721` |
-| 版本 | `1.0` |
+| 版本 | `1.1` |
 | 日期 | 2026-07-21 |
 | 状态 | 当前实现审计基线（架构与行为图） |
 | 审计源码基线 | `9a24bda74cde1b41ded65d858e4f89d92162a9be` |
@@ -23,7 +23,7 @@
 - **流程图**：实线表示当前进程内直接调用或委托；虚线表示信号、callback、注册或条件性创建/调用。边标签说明条件，例如 `fallback_ 已设置`。
 - **时序图**：实线消息表示同步调用，虚线返回表示返回或异步入池；`opt`/`alt` 明确可选或互斥路径。
 
-本轮图表重建的讨论、评审和验证过程应收入计划新增的[文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md)；该记录当前尚未交付，链接仅用于规划追踪。并发、生命周期和错误边界的文字依据见[详细设计第 9 节](./2026-07-21-detailed-design.md#core-algorithms)、[第 10 节](./2026-07-21-detailed-design.md#ownership-lifetime)、[第 11 节](./2026-07-21-detailed-design.md#concurrency-matrix)和[第 12 节](./2026-07-21-detailed-design.md#error-boundaries)。
+本轮图表重建的讨论、评审和验证过程已收入完成并审查的[文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md)，图表与全量交付检查见其[最终验证结果](./2026-07-21-documentation-discussion-record.md#112-task-8-验证结果)。并发、生命周期和错误边界的文字依据见[详细设计第 9 节](./2026-07-21-detailed-design.md#core-algorithms)、[第 10 节](./2026-07-21-detailed-design.md#ownership-lifetime)、[第 11 节](./2026-07-21-detailed-design.md#concurrency-matrix)和[第 12 节](./2026-07-21-detailed-design.md#error-boundaries)。
 
 **目录**
 
