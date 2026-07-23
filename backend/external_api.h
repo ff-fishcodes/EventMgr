@@ -3,6 +3,7 @@
 
 #include "event_types.h"
 #include <vector>
+#include <functional>
 
 class EventManager;
 class ConfigManager;
@@ -36,17 +37,30 @@ public:
                       EventLevel level,
                       const std::string& description);
 
-    // observe 组件对接：报警位变化时调用，自动查等级+描述
+    // observe 组件对接：报警位变化时调用
+    // 等级和描述按 EventId 查报警目录，再按 alarmField 查系统事件定义；
+    // 两级都找不到时用传入的 fallbackLevel（默认提示），描述用 alarmField。
     // isActive=true → 产生事件，isActive=false → 消除事件
     void triggerAlarm(const std::string& deviceName, int frameID,
-                      const std::string& alarmField, bool isActive);
+                      const std::string& alarmField, bool isActive,
+                      EventLevel fallbackLevel = EventLevel::Info);
 
-    // 系统事件入口（eventName 必须在 system_events.h 中已定义）
-    // 纯系统事件（如 disk_full）
-    void triggerSystemEvent(const std::string& eventName, bool isActive);
-    // 关联某设备的系统事件（如 comm_lost）
-    void triggerSystemEvent(const std::string& eventName,
-                            const std::string& deviceName, bool isActive);
+    // ========= 系统事件定义（启动阶段配置）=========
+
+    // 注册一条系统事件定义，供 triggerAlarm 按 alarmField 查等级+描述
+    void addSystemEventDef(const std::string& name, const std::string& description,
+                           EventLevel level);
+
+    // ========= 联动配置门面（业务代码不直接依赖 LinkageEngine）=========
+
+    void registerAction(const std::string& name, const std::string& displayName,
+                        std::function<void()> callback);
+    void configureEvent(const std::string& eventId,
+                        const std::vector<std::string>& activeNames,
+                        const std::vector<std::string>& clearNames);
+    void setLevelDefault(EventLevel level,
+                         const std::vector<std::string>& activeActions,
+                         const std::vector<std::string>& clearActions);
 
     void addEvent(const Event& event);
     void clearEvent(const std::string& deviceName, int frameID, const std::string& alarmField);

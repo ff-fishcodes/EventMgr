@@ -25,6 +25,7 @@
 #include "event_mgr_module.h"
 #include "eventmgr_widget.h"
 #include "linkage_engine.h"
+#include "system_events.h"
 
 namespace {
 
@@ -609,7 +610,8 @@ void AlarmCatalogWidgetTest::initTestCase() {
 void AlarmCatalogWidgetTest::init() {
     ConfigManager::instance().clearAll();
     LinkageEngine::instance().clearAll();
-    ActionRegistry::setup(LinkageEngine::instance());
+    clearSystemEventDefs();
+    ActionRegistry::setup();
     EventManager::instance().setNotifyCallback(EventManager::NotifyCallback());
     LinkageEngine::instance().setFallback(LinkageEngine::FallbackCallback());
 }

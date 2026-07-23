@@ -5,18 +5,27 @@
 #include <vector>
 
 // ============================================================
-// 系统事件预定义列表
+// 系统事件定义表
 //
-// 后端自行监测产生的事件必须在此集中定义，业务代码通过
-// ExternalAPI::triggerSystemEvent() 触发，只能使用已注册的事件名。
+// 后端自行监测产生的事件（通信断连、磁盘满等）在此登记。
+// 由外部业务代码在启动阶段通过 ExternalAPI::addSystemEventDef() 注册，
+// 项目内不再硬编码。触发时按事件名查此表获取等级和描述。
 //
-// 具体事件内容由项目方自行增删，此处仅提供示例。
+// 线程安全说明：注册在启动阶段完成，查询在运行阶段进行，
+// 假定所有注册先于任何触发发生，无需额外加锁。
 // ============================================================
 
-// 获取系统事件预定义列表
+// 注册一条系统事件定义（启动阶段调用）
+void addSystemEventDef(const std::string& name, const std::string& description,
+                       EventLevel level);
+
+// 获取当前已注册的系统事件定义列表
 const std::vector<SystemEventDef>& getSystemEventDefs();
 
 // 按名称查找系统事件定义，未找到时返回 NULL
 const SystemEventDef* findSystemEventDef(const std::string& name);
+
+// 清空所有系统事件定义（测试/重启用）
+void clearSystemEventDefs();
 
 #endif // SYSTEM_EVENTS_H

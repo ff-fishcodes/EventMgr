@@ -1,5 +1,4 @@
 #include "event_mgr_module.h"
-#include "action_registry.h"
 
 ConfigManager*  EventMgrModule::configMgr_  = NULL;
 LinkageEngine*  EventMgrModule::linkageEng_ = NULL;
@@ -20,7 +19,8 @@ void EventMgrModule::init() {
     EventManager::setInstance(eventMgr_);
     ExternalAPI::setInstance(api_);
 
-    ActionRegistry::setup(*linkageEng_);
+    // 联动能力/事件配置/系统事件由业务代码在 init() 之后自行注册，
+    // 通过 ExternalAPI 门面完成，不直接依赖 LinkageEngine。
 }
 
 ExternalAPI& EventMgrModule::api() {

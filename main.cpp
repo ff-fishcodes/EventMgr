@@ -2,12 +2,14 @@
 #include <thread>
 #include <chrono>
 #include "backend/event_mgr_module.h"
+#include "backend/action_registry.h"
 
 int main() {
     std::cout << "===== 事件管理中心 启动 =====" << std::endl << std::endl;
 
-    // 一键启动
+    // 一键启动 + 业务侧注册（业务代码在 init 之后自行注册，不感知 LinkageEngine）
     EventMgrModule::init();
+    ActionRegistry::setup();
     ExternalAPI& api = EventMgrModule::api();
 
     // observe 对接
@@ -19,19 +21,18 @@ int main() {
     api.triggerAlarm("锅炉", 3, "temp_high", false);
     std::cout << "活跃事件: " << api.getActiveEvents().size() << std::endl << std::endl;
 
-    std::cout << "--- 演示3: 系统事件（通信断连）---" << std::endl;
-    api.triggerSystemEvent("comm_lost", "锅炉", true);
+    std::cout << "--- 演示3: 系统事件（通信断连，统一接口）---" << std::endl;
+    api.triggerAlarm("锅炉", 0, "comm_lost", true);
     std::cout << "活跃事件: " << api.getActiveEvents().size() << std::endl;
     std::cout << "事件ID: " << api.getActiveEvents()[0].id << std::endl << std::endl;
 
-    std::cout << "--- 演示4: 系统事件（磁盘满）---" << std::endl;
-    api.triggerSystemEvent("disk_full", true);
-    api.triggerSystemEvent("cpu_overload", true);
+    std::cout << "--- 演示4: 系统事件（磁盘满/CPU 过载）---" << std::endl;
+    api.triggerAlarm("系统", 0, "disk_full", true);
+    api.triggerAlarm("系统", 0, "cpu_overload", true);
     std::cout << "活跃事件: " << api.getActiveEvents().size() << std::endl << std::endl;
 
-    std::cout << "--- 演示5: 未注册系统事件 + 设备事件不在目录 ---" << std::endl;
-    api.triggerSystemEvent("unknown_event", true);
-    api.triggerAlarm("未知设备", 9, "unknown_field", true);
+    std::cout << "--- 演示5: 未定义事件，用传入的兜底等级 ---" << std::endl;
+    api.triggerAlarm("未知设备", 9, "unknown_field", true, EventLevel::Serious);
     std::cout << "活跃事件: " << api.getActiveEvents().size() << std::endl << std::endl;
 
     std::cout << "--- 演示6: 线程池并发联动 ---" << std::endl;

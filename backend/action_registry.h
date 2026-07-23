@@ -1,18 +1,18 @@
 #ifndef ACTION_REGISTRY_H
 #define ACTION_REGISTRY_H
 
-#include "linkage_engine.h"
-
 // ============================================================
-// ActionRegistry — 集中注册所有联动能力
+// ActionRegistry — 业务侧注册示例
 //
-// 将散落在各控制器和 setup.cpp 中的注册逻辑集中到一处。
-// 控制器只需暴露 public 方法，不需关心注册细节。
+// 演示业务代码如何在 EventMgrModule::init() 之后，通过 ExternalAPI 门面
+// 注册联动能力、配置事件联动、登记系统事件定义。
+// 不依赖 LinkageEngine，业务代码对其无感知。
+// 实际项目中此文件由业务方按需替换。
 // ============================================================
 class ActionRegistry {
 public:
-    // 注册所有能力 + 配置所有事件联动
-    static void setup(LinkageEngine& engine);
+    // 通过 ExternalAPI 单例注册所有能力/事件/系统事件
+    static void setup();
 };
 
 #endif // ACTION_REGISTRY_H

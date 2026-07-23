@@ -1,11 +1,13 @@
 #include "external_api.h"
 #include "event_manager.h"
 #include "config_manager.h"
+#include "linkage_engine.h"
 #include "stubs/alarm_catalog.h"
 #include "stubs/log_writer.h"
 #include "system_events.h"
 #include <sstream>
 #include <cstdlib>
+#include <utility>
 
 ExternalAPI* ExternalAPI::instance_ = NULL;
 
@@ -36,103 +38,74 @@ Event ExternalAPI::createAlarm(const std::string& deviceName, int frameID,
 }
 
 void ExternalAPI::triggerAlarm(const std::string& deviceName, int frameID,
-                                 const std::string& alarmField, bool isActive) {
+                                 const std::string& alarmField, bool isActive,
+                                 EventLevel fallbackLevel) {
     if (!isActive) {
         clearEvent(deviceName, frameID, alarmField);
         return;
     }
 
-    // 构造 EventId 用于查目录
     std::ostringstream idStr;
     idStr << deviceName << "-" << frameID << "-" << alarmField;
     std::string targetId = idStr.str();
 
-    // 从报警目录查定义（等级和描述由配置模块提供，observe 不需要知道）
+    // 1. 查报警目录（按完整 EventId）
     std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();
     for (std::vector<AlarmDef>::const_iterator it = defs.begin();
          it != defs.end(); ++it) {
         if (it->id == targetId) {
-            Event event = createAlarm(deviceName, frameID, alarmField,
-                                       it->originalLevel, it->description);
-            addEvent(event);
+            addEvent(createAlarm(deviceName, frameID, alarmField,
+                                 it->originalLevel, it->description));
             return;
         }
     }
 
-    // 目录中找不到 → 用默认值（提示等级 + 字段名作描述），并记录日志
+    // 2. 查系统事件定义（按 alarmField 名）
+    const SystemEventDef* sysDef = findSystemEventDef(alarmField);
+    if (sysDef) {
+        Event event = createAlarm(deviceName, frameID, alarmField,
+                                  sysDef->level, deviceName + "-" + sysDef->description);
+        event.source = EventSource::System;
+        addEvent(event);
+        return;
+    }
+
+    // 3. 都找不到 → 用调用方传入的 fallbackLevel，描述用字段名，记日志
     {
         std::ostringstream warn;
-        warn << "事件不在报警目录中: " << targetId << "，使用默认等级(提示)";
+        warn << "事件未在目录/系统事件中定义: " << targetId
+             << "，使用等级=" << static_cast<int>(fallbackLevel);
         LogWriter::write(warn.str());
     }
-    Event event = createAlarm(deviceName, frameID, alarmField,
-                               EventLevel::Info, alarmField);
-    addEvent(event);
+    addEvent(createAlarm(deviceName, frameID, alarmField, fallbackLevel, alarmField));
 }
 
 void ExternalAPI::addEvent(const Event& event) {
     eventMgr_.processAddEvent(event);
 }
 
-void ExternalAPI::triggerSystemEvent(const std::string& eventName, bool isActive) {
-    const SystemEventDef* def = findSystemEventDef(eventName);
-    if (!def) {
-        std::ostringstream warn;
-        warn << "未注册的系统事件名: " << eventName << "，忽略";
-        LogWriter::write(warn.str());
-        return;
-    }
-
-    if (!isActive) {
-        clearEvent(eventName);
-        return;
-    }
-
-    // 系统事件统一格式: "系统-0-eventName"
-    Event event;
-    event.source        = EventSource::System;
-    event.deviceName    = "系统";
-    event.id            = eventName;
-    event.alarmField    = eventName;
-    event.description   = def->description;
-    event.originalLevel = def->level;
-    event.effectiveLevel = def->level;
-    event.state         = EventState::Active;
-
-    addEvent(event);
+void ExternalAPI::addSystemEventDef(const std::string& name,
+                                     const std::string& description,
+                                     EventLevel level) {
+    ::addSystemEventDef(name, description, level);
 }
 
-void ExternalAPI::triggerSystemEvent(const std::string& eventName,
-                                       const std::string& deviceName, bool isActive) {
-    const SystemEventDef* def = findSystemEventDef(eventName);
-    if (!def) {
-        std::ostringstream warn;
-        warn << "未注册的系统事件名: " << eventName << "，忽略";
-        LogWriter::write(warn.str());
-        return;
-    }
+void ExternalAPI::registerAction(const std::string& name,
+                                  const std::string& displayName,
+                                  std::function<void()> callback) {
+    LinkageEngine::instance().registerAction(name, displayName, std::move(callback));
+}
 
-    // 关联设备系统事件: "deviceName-0-eventName"
-    std::ostringstream idStr;
-    idStr << deviceName << "-0-" << eventName;
-    std::string fullId = idStr.str();
+void ExternalAPI::configureEvent(const std::string& eventId,
+                                  const std::vector<std::string>& activeNames,
+                                  const std::vector<std::string>& clearNames) {
+    LinkageEngine::instance().configureEvent(eventId, activeNames, clearNames);
+}
 
-    if (!isActive) {
-        clearEvent(fullId);
-        return;
-    }
-
-    Event event;
-    event.source        = EventSource::System;
-    event.id            = fullId;
-    event.deviceName    = deviceName;
-    event.alarmField    = eventName;
-    event.description   = deviceName + "-" + def->description;
-    event.originalLevel = def->level;
-    event.effectiveLevel = def->level;
-    event.state         = EventState::Active;
-
-    addEvent(event);
+void ExternalAPI::setLevelDefault(EventLevel level,
+                                   const std::vector<std::string>& activeActions,
+                                   const std::vector<std::string>& clearActions) {
+    LinkageEngine::instance().setLevelDefault(level, activeActions, clearActions);
 }
 
 void ExternalAPI::clearEvent(const std::string& deviceName, int frameID,
