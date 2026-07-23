@@ -13,6 +13,7 @@
 #include <QPushButton>
 #include <QQueue>
 #include <QSplitter>
+#include <QStyle>
 #include <QTableWidget>
 #include <QTabWidget>
 
@@ -160,7 +161,7 @@ bool actionTableExposesSourceMetadata(QTableWidget* table) {
     return false;
 }
 
-bool actionIdentityIsVisible(QTableWidget* table, int row,
+bool actionIdentityIsPainted(QTableWidget* table, int row,
                              const QString& actionName,
                              const QString& displayName) {
     QTableWidgetItem* item = table->item(row, 0);
@@ -172,7 +173,9 @@ bool actionIdentityIsVisible(QTableWidget* table, int row,
     const QList<QLabel*> labels = cell->findChildren<QLabel*>();
     QString visibleText;
     for (int i = 0; i < labels.size(); ++i) {
-        if (labels[i]->isVisible()) visibleText += labels[i]->text();
+        if (labels[i]->isVisible()) {
+            visibleText += labels[i]->property("displayText").toString();
+        }
     }
     return visibleText.contains(actionName) && visibleText.contains(displayName);
 }
@@ -229,9 +232,11 @@ void verifyVisibleActionCellsStayInViewport(QTableWidget* table) {
     }
 }
 
-void verifyActionTextRendering(QTableWidget* table, bool expectOverflow) {
+// Validates the width-dependent paint contract without assuming a particular
+// font metric or desktop overflow outcome.
+void verifyActionTextRendering(QTableWidget* table,
+                               bool requireAtLeastOneOverflow) {
     bool foundOverflow = false;
-    bool foundUnchangedText = false;
     for (int row = 0; row < table->rowCount(); ++row) {
         QWidget* cell = table->cellWidget(row, 0);
         if (!cell) continue;
@@ -253,18 +258,49 @@ void verifyActionTextRendering(QTableWidget* table, bool expectOverflow) {
 
             if (overflows) {
                 foundOverflow = true;
+                QVERIFY2(!displayText.isEmpty(),
+                         "Overflowing action label has no rendered text");
+                QVERIFY2(metrics.horizontalAdvance(displayText) <=
+                             label->contentsRect().width(),
+                         "Elided action text still exceeds its contents rect");
                 QVERIFY(displayText != fullText);
                 QVERIFY2(displayText.contains(QChar(0x2026)) ||
                              displayText.contains(QString::fromLatin1("...")),
                          "Overflowing action text must use explicit right elision");
             } else {
-                foundUnchangedText = true;
                 QCOMPARE(displayText, fullText);
             }
         }
     }
-    QCOMPARE(foundOverflow, expectOverflow);
-    QVERIFY2(foundUnchangedText, "Fixture must cover non-overflowing action text");
+    if (requireAtLeastOneOverflow) {
+        QVERIFY2(foundOverflow,
+                 "Narrow active-action fixture must exercise text elision");
+    }
+}
+
+// Finds the label that paints an action's backend key. The lookup deliberately
+// combines the cell identity with the accessible role instead of label order.
+QLabel* internalNameLabel(QTableWidget* table, const QString& actionName) {
+    const int row = actionRowByInternalName(table, actionName);
+    QWidget* cell = table->cellWidget(row, 0);
+    if (!cell || cell->property("actionName").toString() != actionName) {
+        QTest::qFail("Action identity cell is missing", __FILE__, __LINE__);
+        return nullptr;
+    }
+
+    const QString internalRole = QString::fromUtf8("动作内部名称");
+    const QList<QLabel*> labels = cell->findChildren<QLabel*>();
+    for (int i = 0; i < labels.size(); ++i) {
+        QLabel* label = labels[i];
+        if (label->accessibleName() == actionName &&
+            label->accessibleDescription().contains(internalRole)) {
+            return label;
+        }
+    }
+    QTest::qFail(qPrintable(QString::fromLatin1(
+        "Internal-name painted label for '%1' was not found").arg(actionName)),
+        __FILE__, __LINE__);
+    return nullptr;
 }
 
 QRect logicalRectToPixels(const QRect& logicalRect, qreal devicePixelRatio) {
@@ -314,6 +350,63 @@ void verifyRegionHasRenderedContent(const QImage& image,
     QVERIFY2(foregroundSamples >= qMax(6, sampleCount / 1000),
              qPrintable(QString::fromLatin1("%1 appears blank")
                  .arg(QString::fromLatin1(description))));
+}
+
+// Samples high-frequency luminance changes inside an expected text region.
+// This tolerates palette and antialiasing differences while a blank paint path
+// still fails even when the surrounding widget itself has borders or shading.
+void verifyRegionHasTextInk(const QImage& image,
+                            const QRect& logicalRect,
+                            qreal devicePixelRatio,
+                            const char* description) {
+    const QRect pixelRect = logicalRectToPixels(logicalRect, devicePixelRatio)
+        .intersected(image.rect());
+    QVERIFY2(!pixelRect.isEmpty(), description);
+
+    int darkest = 255;
+    int lightest = 0;
+    int edgeTransitions = 0;
+    const int edgeThreshold = 10;
+    for (int y = pixelRect.top(); y <= pixelRect.bottom(); ++y) {
+        for (int x = pixelRect.left(); x <= pixelRect.right(); ++x) {
+            const int luminance = qGray(image.pixel(x, y));
+            darkest = qMin(darkest, luminance);
+            lightest = qMax(lightest, luminance);
+            if (x > pixelRect.left() &&
+                qAbs(luminance - qGray(image.pixel(x - 1, y))) >= edgeThreshold) {
+                ++edgeTransitions;
+            }
+            if (y > pixelRect.top() &&
+                qAbs(luminance - qGray(image.pixel(x, y - 1))) >= edgeThreshold) {
+                ++edgeTransitions;
+            }
+        }
+    }
+
+    QVERIFY2(lightest - darkest >= 16,
+             qPrintable(QString::fromLatin1("%1 lacks text contrast")
+                 .arg(QString::fromLatin1(description))));
+    QVERIFY2(edgeTransitions >= 6,
+             qPrintable(QString::fromLatin1("%1 has no painted text edges")
+                 .arg(QString::fromLatin1(description))));
+}
+
+QRect mappedContentsRect(const QWidget* child, const QWidget* ancestor) {
+    const QRect contents = child->contentsRect();
+    return QRect(child->mapTo(ancestor, contents.topLeft()), contents.size());
+}
+
+// Returns the expected glyph area for ordinary QLabel/QPushButton text. It is
+// intentionally expanded slightly for style-dependent font bearings.
+QRect mappedTextRect(const QWidget* widget, const QString& text,
+                     Qt::Alignment alignment, const QWidget* ancestor) {
+    const QFontMetrics metrics(widget->font());
+    const QSize textSize(metrics.horizontalAdvance(text), metrics.height());
+    QRect textRect = QStyle::alignedRect(widget->layoutDirection(), alignment,
+                                         textSize, widget->contentsRect());
+    textRect.adjust(-2, -2, 2, 2);
+    textRect = textRect.intersected(widget->contentsRect());
+    return QRect(widget->mapTo(ancestor, textRect.topLeft()), textRect.size());
 }
 
 } // namespace
@@ -472,10 +565,10 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     const int stopRow = actionRow(active, "cooler_stop", QString::fromUtf8("关冷却塔"));
     const int fanRow = actionRow(active, "cooler_fan", QString::fromUtf8("调风扇"));
     QVERIFY(stopRow < fanRow);
-    QVERIFY2(actionIdentityIsVisible(active, stopRow, "cooler_stop",
+    QVERIFY2(actionIdentityIsPainted(active, stopRow, "cooler_stop",
                                      QString::fromUtf8("关冷却塔")),
              "Each action row must visibly show its display and internal names");
-    QVERIFY2(actionIdentityIsVisible(active, fanRow, "cooler_fan",
+    QVERIFY2(actionIdentityIsPainted(active, fanRow, "cooler_fan",
                                      QString::fromUtf8("调风扇")),
              "Each action row must visibly show its display and internal names");
 
@@ -1146,10 +1239,10 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
     const int secondaryRow = actionRowByInternalName(
         active, QString::fromLatin1("boiler_reset_secondary"));
     QVERIFY(primaryRow != secondaryRow);
-    QVERIFY2(actionIdentityIsVisible(active, primaryRow,
+    QVERIFY2(actionIdentityIsPainted(active, primaryRow,
                                      "boiler_reset_primary", duplicateDisplayName),
              "Duplicate display names need visible active-phase internal names");
-    QVERIFY2(actionIdentityIsVisible(active, secondaryRow,
+    QVERIFY2(actionIdentityIsPainted(active, secondaryRow,
                                      "boiler_reset_secondary", duplicateDisplayName),
              "Duplicate display names need visible active-phase internal names");
     const int longActionRow = actionRowByInternalName(
@@ -1188,10 +1281,10 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
         QVERIFY(!status->text().isEmpty());
         QCOMPARE(refresh->text(), QString::fromUtf8("刷新"));
         QCOMPARE(apply->text(), QString::fromUtf8("应用配置"));
-        QVERIFY(actionIdentityIsVisible(active, primaryRow,
+        QVERIFY(actionIdentityIsPainted(active, primaryRow,
                                         "boiler_reset_primary",
                                         duplicateDisplayName));
-        QVERIFY(actionIdentityIsVisible(active, secondaryRow,
+        QVERIFY(actionIdentityIsPainted(active, secondaryRow,
                                         "boiler_reset_secondary",
                                         duplicateDisplayName));
         verifyContainedAndVisible(splitter, &widget, "configuration splitter");
@@ -1225,6 +1318,29 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
         verifyActionTextRendering(active, size.width == 760);
         verifyActionTextRendering(clear, false);
 
+        if (size.width == 760) {
+            QLabel* primaryInternal = internalNameLabel(
+                active, QString::fromLatin1("boiler_reset_primary"));
+            QLabel* secondaryInternal = internalNameLabel(
+                active, QString::fromLatin1("boiler_reset_secondary"));
+            QVERIFY(primaryInternal);
+            QVERIFY(secondaryInternal);
+            QCOMPARE(primaryInternal->accessibleName(),
+                     QString::fromLatin1("boiler_reset_primary"));
+            QCOMPARE(secondaryInternal->accessibleName(),
+                     QString::fromLatin1("boiler_reset_secondary"));
+            const QString primaryPaint =
+                primaryInternal->property("displayText").toString();
+            const QString secondaryPaint =
+                secondaryInternal->property("displayText").toString();
+            QVERIFY2(!primaryPaint.isEmpty(),
+                     "Primary internal-name label paints no identity");
+            QVERIFY2(!secondaryPaint.isEmpty(),
+                     "Secondary internal-name label paints no identity");
+            QVERIFY2(primaryPaint != secondaryPaint,
+                     "Duplicate display names need distinct painted internal keys");
+        }
+
         const QPixmap pixmap = widget.grab();
         QVERIFY(!pixmap.isNull());
         const qreal devicePixelRatio = pixmap.devicePixelRatio();
@@ -1241,11 +1357,40 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
                                        "active action table");
         verifyRegionHasRenderedContent(image, clearRect, devicePixelRatio,
                                        "clear action table");
-        const QRect bottomControlsRect = refreshRect.united(applyRect)
-            .united(statusRect);
-        verifyRegionHasRenderedContent(image, bottomControlsRect,
-                                       devicePixelRatio,
-                                       "bottom controls and status");
+        QTableWidget* actionTables[] = {active, clear};
+        for (QTableWidget* actionTable : actionTables) {
+            int sampledActionLabels = 0;
+            const QRect viewportRect = actionTable->viewport()->rect();
+            for (int row = 0; row < actionTable->rowCount(); ++row) {
+                QWidget* cell = actionTable->cellWidget(row, 0);
+                if (!cell) continue;
+                const QRect cellRect = widgetRectIn(
+                    cell, actionTable->viewport());
+                if (!cellRect.intersects(viewportRect)) continue;
+                const QList<QLabel*> labels = cell->findChildren<QLabel*>();
+                for (int i = 0; i < labels.size(); ++i) {
+                    QLabel* label = labels[i];
+                    const QRect labelRect = mappedContentsRect(label, &widget);
+                    verifyRegionHasTextInk(image, labelRect, devicePixelRatio,
+                                           "mapped action label contents");
+                    ++sampledActionLabels;
+                }
+            }
+            QVERIFY2(sampledActionLabels >= 2,
+                     "Each action table must sample painted label contents");
+        }
+        verifyRegionHasTextInk(
+            image, mappedTextRect(refresh, refresh->text(), Qt::AlignCenter,
+                                  &widget),
+            devicePixelRatio, "refresh button text");
+        verifyRegionHasTextInk(
+            image, mappedTextRect(apply, apply->text(), Qt::AlignCenter,
+                                  &widget),
+            devicePixelRatio, "apply button text");
+        verifyRegionHasTextInk(
+            image, mappedTextRect(status, status->text(), status->alignment(),
+                                  &widget),
+            devicePixelRatio, "status text");
 
         if (!screenshotDir.isEmpty()) {
             const QString path = QDir(QString::fromLocal8Bit(screenshotDir))

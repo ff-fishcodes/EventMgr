@@ -879,3 +879,51 @@ Use `superpowers:requesting-code-review` against the full implementation commit 
 - [ ] **Step 5: Present integration choices without pushing**
 
 Use `superpowers:finishing-a-development-branch` only after review and verification are clean. Report the commit range and verification evidence. Do not push: the project rule requires documentation before push, and remote integration still requires the user's explicit choice.
+
+## 2026-07-23 Task 8 screenshot quality follow-up
+
+### Discussion and decision record
+
+- The original screenshot assertion treated overflow as a fixed property of a
+  viewport: desktop active and both clear tables were required to have no
+  overflowing labels. `QT_FONT_DPI=120` and `QT_FONT_DPI=144` both disproved
+  that assumption at `verifyActionTextRendering()` with 2 passed / 1 failed.
+- The accepted contract is now per label and font-metric driven. Full text that
+  fits must remain unchanged; overflowing text must have a nonempty fitting
+  `displayText`, differ from the full value, carry explicit right ellipsis, and
+  retain the full tooltip and accessible identity. Only the 760 px active table
+  fixture must contain at least one overflow case. Desktop and clear tables may
+  overflow when the selected font metrics require it.
+- Duplicate same-phase actions are identified through the action cell property
+  and the internal-name accessible role. At narrow width, their nonempty painted
+  `displayText` values must differ while `accessibleName` remains each exact
+  backend key; `QLabel::text()` alone is not accepted as visible-paint evidence.
+- Screenshot evidence keeps broad table checks and adds DPR-aware luminance and
+  edge sampling for mapped action-label `contentsRect` values and the separate
+  refresh-button, apply-button, and status-text regions. The checks avoid exact
+  palette colors. A temporary blank `ElidedLabel::paintEvent()` mutation produced
+  14 targeted contrast failures, after which the production source was restored.
+- Scope is test quality plus this traceability record. No production defect or
+  production source change was retained, no dependency changed, and no remote
+  push was performed.
+
+### Verification evidence
+
+Local verification used QtTest/Qt 5.15.3 and GCC 11.3.0 as reported by the test
+executables. The project target remains Qt 5.15.10; this local evidence does not
+replace target-platform qualification.
+
+| Check | Result |
+|---|---|
+| Screenshot slot, `QT_SCALE_FACTOR=1` | 3 passed / 0 failed; regenerated 1280x760 and 760x720 PNG files and inspected both |
+| Screenshot slot, `QT_SCALE_FACTOR=2` | 3 passed / 0 failed |
+| Screenshot slot, `QT_FONT_DPI=120` | 3 passed / 0 failed |
+| Screenshot slot, `QT_FONT_DPI=144` | 3 passed / 0 failed |
+| Complete frontend Qt Test executable | 19 passed / 0 failed |
+| Complete backend Qt Test executable | 12 passed / 0 failed |
+| Frontend qmake product | Existing qmake build relinked successfully |
+| Backend demo product | README `g++ -std=c++11` plus Qt5Core command rebuilt successfully |
+
+Generated screenshots remain ignored build evidence. Existing class, call, and
+sequence diagrams continue to describe the unchanged production implementation;
+this follow-up introduces no new production class or call relationship.
