@@ -906,7 +906,7 @@ sequenceDiagram
         LE->>Mutex: unlock
         LE->>Mutex: lock
         loop 每个动作名
-            LE->>LE: isActionDisabled(id, name, false)
+            LE->>LE: isActionDisabledLocked(id, name, false)
             alt 已注册且未禁用
                 LE->>LE: 保存 callback shared handle
             else 已禁用或未注册
