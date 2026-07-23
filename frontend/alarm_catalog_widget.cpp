@@ -245,7 +245,8 @@ void AlarmCatalogWidget::buildCatalogRows() {
         const int actionCount = groups
             ? groups->activeActions.size() + groups->clearActions.size() : 0;
         QTableWidgetItem* countItem =
-            new QTableWidgetItem(QString::number(actionCount));
+            new QTableWidgetItem(actionCount == 0
+                ? QString::fromUtf8("无") : QString::number(actionCount));
         countItem->setTextAlignment(Qt::AlignCenter);
         ui.catalogTable->setItem(row, 5, countItem);
     }

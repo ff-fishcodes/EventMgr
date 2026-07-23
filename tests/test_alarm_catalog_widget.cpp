@@ -684,6 +684,11 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     QCOMPARE(linkageCount->text().toInt(),
              groups.activeActions.size() + groups.clearActions.size());
     QCOMPARE(groups.activeActions.size() + groups.clearActions.size(), 2);
+
+    QTableWidgetItem* emptyLinkage =
+        catalog->item(catalogRow(catalog, kOtherEvent), 5);
+    QVERIFY2(emptyLinkage, "The empty catalog linkage cell is missing");
+    QCOMPARE(emptyLinkage->text(), QString::fromUtf8("无"));
 }
 
 void AlarmCatalogWidgetTest::preservesEditsAcrossSelectionChanges() {
