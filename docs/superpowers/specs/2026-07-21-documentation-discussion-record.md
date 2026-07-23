@@ -95,8 +95,8 @@ Task 6 持久化机制：`ffd994cd47cef502563473691de4b584cdafbd29` 是被本次
 | R-002 | 中 | 纯系统事件 ID 是单段 `eventName`，与 `event_types.h` 的统一三段式旧注释不一致 | 调用方可能按错误格式生成、显示或清除 ID | 选择并固化统一标识契约；决定保留单段时同步修正源码注释和外部协议 | 已记录；待产品确认，未实施 |
 | R-003 | 高 | `EventManager::findEvent()` 在锁内取得内部元素地址，但返回前已解锁；删除、容器析构或无同步并发访问可使指针无效/不安全 | 调用方可能读悬空对象或产生数据竞争 | 改为按值/`optional` 快照返回，或提供受控锁内访问接口；废弃裸内部指针契约 | 已记录；未实施 |
 | R-004 | 高 | 事件产生/清除持有非递归事件锁同步通知；默认同线程 Qt 信号立即刷新并再次查询同一管理器 | 未屏蔽产生和所有命中清除可死锁；产生日志或清除日志/删除可能无法到达 | 缩小锁范围，在提交内部状态后解锁再通知；定义回调重入策略并增加默认 UI 集成测试 | 已记录并在时序图标出停止点；未实施 |
-| R-005 | 高 | 通知与 fallback 是进程全局单值回调；后初始化桥接覆盖前者，setter/read 无锁，lambda 捕获 `this`，析构不解绑 | 多桥接仅最后一个有效；并发读写存在数据竞争；桥接销毁后可能调用悬空对象 | 引入带令牌的订阅/退订和线程安全快照调用；用 QObject 寿命感知连接或弱引用；销毁时解除 | 已记录；未实施 |
-| R-006 | 高 | `LinkageEngine` 的动作表、显示名、事件配置、等级默认、禁用集合和 fallback 没有互斥保护 | UI 配置与事件执行并发时可能数据竞争、迭代失效或读到不一致配置 | 明确单线程约束或增加读写锁；执行前复制不可变快照，避免持锁调用外部 callback | 已记录；未实施 |
+| R-005 | 高 | 通知与 fallback 是进程全局单值回调，后初始化桥接覆盖前者；fallback 已线程安全快照，但通知 setter/read 仍无锁；lambda 捕获 `this` 且析构不解绑 | 多桥接仅最后一个有效；通知并发读写和桥接销毁后调用仍不安全 | 引入带令牌的订阅/退订；用 QObject 寿命感知连接或弱引用；销毁时解除 | fallback 并发已整改；订阅和对象寿命未实施 |
+| R-006 | 中 | `LinkageEngine` 已用单个 `configMutex_` 保护全部配置并以不可变 shared handle 锁外调用；一次执行仍分名称/fallback 与 callback/禁用两个线性化点 | 已消除原无锁数据竞争，但并发写入可使一次执行观察两个配置时点 | 保留 best-effort 契约；若产品要求跨配置事务，再引入版本化单快照 | 核心并发整改已实施并由并发测试覆盖；事务语义未提供 |
 | R-007 | 高 | 私有线程池只把并发数限制为 4，提交队列无上限、无背压/取消；`clearAll()` 先 `waitForDone()` 再清配置 | 慢/阻塞动作持续进入会积压内存和陈旧控制；动作不返回时清理可无限等待 | 增加有界队列、超时、背压和过期策略；将关闭流程与配置清理分离并提供可观测结果 | 已记录；未实施 |
 | R-008 | 高 | `EventMgrModule::init()` 无锁且只检查 `api_`；并发首次调用可能重复分配/覆盖；各 `instance()`/`api()` 在未初始化时直接解引用空指针；没有 shutdown，动态对象不释放 | 初始化竞态、空指针崩溃、资源和线程池无法有序关闭 | 使用线程安全一次性初始化和显式错误返回；增加逆序 shutdown、回调解绑及线程池排空策略 | 已记录；未实施 |
 | R-009 | 中 | 通知 JSON 通过字符串流手工拼接，字符串字段没有 JSON 转义 | 引号、反斜杠或控制字符可生成非法或语义被改变的消息 | 使用明确版本的 JSON 库或集中转义器，并为特殊字符和编码增加测试 | 已记录；未实施；引入库时须记录版本与编译方式 |
@@ -105,10 +105,10 @@ Task 6 持久化机制：`ffd994cd47cef502563473691de4b584cdafbd29` 是被本次
 | R-012 | 高 | `BackendBridge` 当前同进程直调单例；`SocketServer` 只是无回调时打印 JSON 的桩，没有客户端、协议、重连、鉴权和确认 | 原始前后端分离目标无法验收，不能用于可靠跨进程部署 | 产品确认是否仍要求分离；若要求，单独设计协议、版本、状态同步、错误恢复和安全边界 | 已记录；待产品确认，未实施 |
 | R-013 | 中 | 活跃事件、降级、屏蔽、联动配置/禁用均仅存内存，`LogWriter` 只输出标准输出 | 重启丢失配置与状态，无法提供历史审计或恢复 | 确认恢复点和审计保留要求；采用事务持久化、版本迁移和启动恢复策略 | 已记录；待产品确认，未实施 |
 | R-014 | 中 | 动作禁用键直接拼为 `eventId + "\|" + actionName`，两部分没有转义 | 含 `\|` 的不同输入对可发生键碰撞，误禁用或误启用动作 | 使用结构化 pair 作为键并提供组合哈希，或禁止并校验分隔符 | 已记录；未实施 |
-| R-015 | 中 | `ActionInfo`、`EventEntry`、`CatalogEntry`、`ActionEntry` 默认构造时部分 `bool`/`int` 标量值不确定；当前生产组装路径虽全部赋值，公开类型仍允许误用 | 新调用方默认构造后读取可产生未定义/不确定行为 | 在成员声明处默认初始化全部标量，并增加默认构造单元测试 | 已记录；未实施 |
-| R-016 | 低 | 24 个可构造类型中仅 6 个构造和析构均显式，7 个只有显式构造，11 个均隐式 | 不满足项目“显式声明构造函数和析构函数”规则，也使所有权意图不够清晰 | 按详细设计第 13 节逐类补齐；静态工具类显式禁止实例化，QObject 类声明合适的虚析构覆盖 | 已完成合规审计；代码未实施 |
+| R-015 | 中 | 本功能的 `ActionInfo`/`ActionEntry` 及分组 DTO 已确定性构造；旧 `EventEntry`、`CatalogEntry` 默认构造时部分标量仍不确定 | 新调用方默认构造旧 DTO 后读取可能不确定 | 初始化剩余旧 DTO 标量并增加默认构造测试 | 联动 DTO 已整改；旧 DTO 未实施 |
+| R-016 | 低 | 本功能触及类型均已显式构造/析构；仓库其他旧值结构、页面或静态工具类仍有隐式特殊成员 | 功能范围合规，但全仓库仍未完全满足规则 | 依据详细设计第 13 节继续做全仓库专项审计 | 本功能已实施；全仓库清理未实施 |
 | R-017 | 高 | `AlarmCatalog`、`SocketServer`、`LogWriter`、`CmdSender`、`BuzzerControl` 均为静态示例或输出/延时桩 | 不能提供真实目录、通信、持久化、设备控制、确认、重试和故障恢复 | 在生产接入前定义适配接口、错误模型和验收测试；逐个替换桩并保留离线测试替身 | 已明确桩边界；未实施 |
-| R-018 | 高 | `std::function` 回调允许抛出异常，但 `EventManager` 通知回调、`LinkageEngine` 同步 fallback 和异步 `ActionTask::run()` 均没有 `catch` 边界；证据见[详细设计公共回调契约](./2026-07-21-detailed-design.md#public-type-index)、[`EventManager::notifyFrontend()`](../../../backend/event_manager.cpp)和[`ActionTask`/fallback 实现](../../../backend/linkage_engine.cpp) | 同步通知或 fallback 抛出时会向事件调用方展开栈，`QMutexLocker` 会按 RAII 解锁，但事件链可能停在已入表、已改为 `Cleared` 或尚未写日志/删除的部分完成状态；异步 `QRunnable` 回调异常若逃出 `run()`，可能依运行时行为终止进程，且没有动作失败结果 | 为回调规定明确的 `noexcept` 契约，或在同步与异步边界分别捕获、记录并执行经产品确认的继续/回滚/失败策略；增加通知、fallback 和动作三类抛异常状态测试 | 已补充风险与源码/详细设计证据；未实施 |
+| R-018 | 高 | `LinkageEngine` 的动作与 fallback 已捕获标准/未知异常；`EventManager` 通知回调仍可抛出 | 联动异常不再逃出任务/引擎边界，但通知仍可能造成事件链部分完成 | 为通知规定 `noexcept` 或捕获/记录/状态策略并测试 | 联动部分已实施并测试；通知部分未实施 |
 | R-019 | 中 | 事件时间戳使用返回共享静态状态的 `std::localtime()`；`EventManager` 互斥锁只串行本模块的事件加入，不能保护进程内其他线程对 `localtime()` 的调用；证据见[详细设计并发矩阵](./2026-07-21-detailed-design.md#concurrency-matrix)和[`processAddEvent()`](../../../backend/event_manager.cpp) | 其他线程同时转换本地时间时可能发生数据竞争或读到被覆盖/损坏的时间字段，导致事件时间戳错误 | 封装线程安全时间转换层，在 POSIX 使用 `localtime_r()`、Windows 使用 `localtime_s()`，并用平台条件编译和并发测试验证 | 已补充风险与源码/详细设计证据；未实施 |
 
 ### 5.1 风险治理台账
@@ -122,7 +122,7 @@ Task 6 持久化机制：`ffd994cd47cef502563473691de4b584cdafbd29` 是被本次
 | R-003 | P1 | [详细设计 `EventManager`](./2026-07-21-detailed-design.md#module-event-manager)；[`EventManager::findEvent()`](../../../backend/event_manager.cpp) | 后端核心所有者 | M1 公共 API 冻结前，日期待指定；未实施 | 公共 API 不再返回无保护内部指针，或提供可证明安全的受控访问；删除/并发读取测试通过 |
 | R-004 | P0 | [产生算法](./2026-07-21-detailed-design.md#add-flow)、[清除算法](./2026-07-21-detailed-design.md#clear-flow)；[`EventManager`](../../../backend/event_manager.cpp)；[`EventMgrWidget`](../../../frontend/eventmgr_widget.cpp) | 后端核心和 Qt 前端所有者 | M0 默认 UI 安全门禁，日期待指定；未实施 | 默认同线程 UI 中未屏蔽产生和命中清除均返回；日志/删除到达；重入及跨线程集成测试无死锁 |
 | R-005 | P0 | [所有权矩阵](./2026-07-21-detailed-design.md#ownership-lifetime)；[`BackendBridge::initialize()`/析构](../../../frontend/backend_bridge.cpp)；[`setNotifyCallback`](../../../backend/event_manager.h) | 系统架构和 Qt 前端所有者 | M0 回调寿命门禁，日期待指定；未实施 | 多桥接订阅策略有明确契约；并发注册/通知安全；桥接销毁后不再回调；覆盖接管、退订和销毁测试 |
-| R-006 | P0 | [并发矩阵](./2026-07-21-detailed-design.md#concurrency-matrix)；[`LinkageEngine`](../../../backend/linkage_engine.cpp) | 联动引擎所有者 | M0 并发安全门禁，日期待指定；未实施 | 配置读写采用明确单线程契约或同步/快照；事件执行与 UI 配置并发测试无数据竞争或迭代失效 |
+| R-006 | P2 | [并发矩阵](./2026-07-21-detailed-design.md#concurrency-matrix)；[`LinkageEngine`](../../../backend/linkage_engine.cpp) | 联动引擎所有者 | 单锁/快照实现已完成；保留双线性化点语义评估 | 并发配置/查询/执行测试通过；文档不宣称跨调用事务 |
 | R-007 | P1 | [联动引擎错误边界](./2026-07-21-detailed-design.md#error-boundaries)；[`executeNames()`/`clearAll()`](../../../backend/linkage_engine.cpp) | 联动引擎和平台可靠性所有者 | M1 生产负载验证前，日期待指定；未实施 | 队列有上限、背压/过期和关闭时限；可观测拒绝/失败；慢动作压力及永不返回动作的关闭测试满足批准阈值 |
 | R-008 | P1 | [初始化调用关系](./2026-07-21-detailed-design.md#init-flow)；[`EventMgrModule::init()`](../../../backend/event_mgr_module.cpp) | 系统架构和后端核心所有者 | M1 生命周期集成前，日期待指定；未实施 | 并发初始化只产生一组对象；初始化前访问可报告错误；shutdown 逆序解绑、排空并释放；生命周期测试通过 |
 | R-009 | P2 | [通知 JSON](./2026-07-21-detailed-design.md#notification-json)；[`EventManager::notifyFrontend()`](../../../backend/event_manager.cpp) | 后端通知所有者、安全评审角色 | M2 输入健壮性迭代，日期待指定；未实施 | 特殊字符、控制字符和编码样例可被标准 JSON 解析器往返；若引库，版本与编译方式已记录 |
@@ -132,7 +132,7 @@ Task 6 持久化机制：`ffd994cd47cef502563473691de4b584cdafbd29` 是被本次
 | R-013 | P2 | [所有权矩阵](./2026-07-21-detailed-design.md#ownership-lifetime)；[`EventManager`](../../../backend/event_manager.h)、[`ConfigManager`](../../../backend/config_manager.h)、[`LinkageEngine`](../../../backend/linkage_engine.h)、[`LogWriter` 桩](../../../backend/stubs/log_writer.cpp) | 产品负责人决定保留/恢复；平台数据所有者实施 | M2 状态恢复迭代，日期待指定；待产品确认，未实施 | 明确保留期、恢复点和迁移策略；重启恢复、故障一致性、历史检索和审计验收通过，或产品明确接受易失状态 |
 | R-014 | P2 | [详细设计 `LinkageEngine`](./2026-07-21-detailed-design.md#module-linkage-engine)；[`makeDisableKey()`](../../../backend/linkage_engine.cpp) | 联动引擎所有者 | M2 键健壮性迭代，日期待指定；未实施 | 键改为结构化 pair 或入口严格拒绝 `\|`；碰撞构造测试证明不同输入不会互相禁用 |
 | R-015 | P2 | [ActionInfo](./2026-07-21-detailed-design.md#type-action-info)、[EventEntry](./2026-07-21-detailed-design.md#type-event-entry)、[CatalogEntry](./2026-07-21-detailed-design.md#type-catalog-entry)、[ActionEntry](./2026-07-21-detailed-design.md#type-action-entry) | 公共 DTO/API 所有者 | M2 DTO 健壮性迭代，日期待指定；未实施 | 所有标量声明即初始化；默认构造和序列化/桥接测试可确定性读取全部字段 |
-| R-016 | P3 | [构造与析构合规审计](./2026-07-21-detailed-design.md#ctor-dtor-audit)；相关声明见[`backend/`](../../../backend/event_mgr_module.h)和[`frontend/`](../../../frontend/event_list_widget.h) | 系统架构规则维护者、各组件所有者 | M3 工程合规清理，日期待指定；未实施 | 24 个可构造类型逐项复核；构造/析构显式声明或经批准的规则例外均有记录；编译和生命周期测试通过 |
+| R-016 | P3 | [构造与析构合规审计](./2026-07-21-detailed-design.md#ctor-dtor-audit)；相关声明见[`backend/`](../../../backend/event_mgr_module.h)和[`frontend/`](../../../frontend/event_list_widget.h) | 系统架构规则维护者、各组件所有者 | 本功能范围已完成；全仓库清理日期待指定 | 全仓库逐项复核；显式声明或批准例外均有记录；编译和生命周期测试通过 |
 | R-017 | P1 | [外部桩详细设计](./2026-07-21-detailed-design.md#stub-modules)；[`backend/stubs/`](../../../backend/stubs/alarm_catalog.cpp)；[`ActionRegistry`](../../../backend/action_registry.cpp) | 产品负责人决定生产边界；设备/通信/日志集成所有者实施 | M1 生产集成门禁，日期待指定；待产品确认具体适配范围，未实施 | 每个交付范围内桩由生产适配器替换并具错误、超时、重试/确认测试；未替换项明确排除出生产声明 |
 | R-018 | P0 | [公共回调契约](./2026-07-21-detailed-design.md#public-type-index)；[`EventManager::notifyFrontend()`](../../../backend/event_manager.cpp)；[`ActionTask`/fallback](../../../backend/linkage_engine.cpp) | 系统架构和后端可靠性所有者 | M0 异常边界门禁，日期待指定；未实施 | 三类回调均有 `noexcept` 或捕获/记录/状态策略；抛异常测试验证锁释放、事件最终状态、日志和进程存活符合批准策略 |
 | R-019 | P2 | [并发矩阵](./2026-07-21-detailed-design.md#concurrency-matrix)；[`processAddEvent()` 时间转换](../../../backend/event_manager.cpp) | 平台兼容和后端核心所有者 | M2 平台健壮性迭代，日期待指定；未实施 | 使用跨平台线程安全封装；并发时间转换测试无覆盖/损坏，目标工具链编译通过 |
@@ -270,7 +270,7 @@ test "$backend_demo_exit" -eq 0
 
 本节严格采用第 5.1 节的整改优先级，不把风险严重度直接等同于排期。各项日期仍待指定，所有代码风险仍未实施：
 
-1. P0 默认路径/安全门禁：`R-004` 默认 UI 死锁、`R-005` 回调所有权与寿命、`R-006` 联动容器并发、`R-010` 降级/联动安全语义、`R-018` 回调异常边界。其中降级/联动项必须先由产品/功能安全角色确认语义，其余由架构和代码所有者进入下一轮稳定化。
+1. P0 默认路径/安全门禁：`R-004` 默认 UI 死锁、`R-005` 通知回调所有权与寿命、`R-010` 降级/联动安全语义、`R-018` 剩余通知异常边界。`R-006` 的无锁数据竞争已整改，双线性化点语义转 P2 跟踪。
 2. P1 生产集成/接口冻结门禁：`R-001` ID 解析、`R-003` 内部指针、`R-007` 无界队列/关闭等待、`R-008` 初始化与 shutdown、`R-012` Socket 分离范围、`R-017` 生产桩替换。高严重度但列入 P1 的原因是依赖接口/部署/生产范围确认，必须在相应门禁前关闭，不能因此带入生产。
 3. P2 健壮性迭代：`R-002` 纯系统 ID/注释、`R-009` JSON 转义、`R-011` 活跃事件降级时效、`R-013` 持久化、`R-014` 禁用键碰撞、`R-015` DTO 标量、`R-019` 线程安全时间转换。涉及产品语义的项目先确认再实施。
 4. P3 工程合规：`R-016` 显式构造/析构规则。按[构造与析构合规审计](./2026-07-21-detailed-design.md#ctor-dtor-audit)逐项关闭规则缺口。
@@ -337,3 +337,40 @@ test "$backend_demo_exit" -eq 0
 使用 Node.js 标准库对 12 个纳入范围的 Markdown 文件检查相对链接和锚点，共解析 257 个相对链接，其中 144 个带 fragment；缺失目标或锚点为 0，重复显式锚点为 0。当前需求基线共提取 73 个唯一 `CB-` 需求编号，详细设计中 73/73 均可找到。EventId 术语扫描确认当前定义统一采用设备事件 `deviceName-frameID-alarmField`、关联设备系统事件 `deviceName-0-eventName`、纯系统事件 `eventName`；后端按前两个连字符分隔、前端要求恰好三段的边界已在 `CB-ID-006` 精确记录，但解析风险未整改。`protocolID` 和“系统-0-eventName”只保留在历史差异或风险说明中，不作为当前格式。原始需求“非当前基线”、两版历史需规“历史归档”和当前需求“唯一需求与验收基线”的四项权威标记检查均通过，结果为 4/4。执行计划的 26/26 项均已勾选，未勾选项为 0；文档中心 `docs/README.md` 中的计划状态为“已执行（文档任务）”，与计划完成状态一致。
 
 本结果只证明文档一致性，不是代码问题修复或目标平台验收。`backend/event_types.h` 的旧注释仍与纯系统事件当前格式不一致；连字符分隔和 `atoi()` 解析风险仍未整改；飞腾 FT/2000、银河麒麟 V10 与项目声明的 Qt 5.15.10 未重新验证；已知默认 GUI 同线程通知死锁未复测。本任务没有重新构建后端或前端，不能把起始门禁或历史构建结果冒充最终构建证据；本轮也未执行 `git push`。
+
+## 13. 2026-07-23 事件联动配置中心讨论与验证记录
+
+### 13.1 已确认需求与设计选择
+
+- 配置范围为设备与系统事件组成的完整报警目录；每个事件提供降级、屏蔽和联动三个配置域，联动再明确分为产生侧与消除侧。
+- 有效动作按等级默认在前、事件动作在后稳定去重；界面只呈现最终动作和阶段，不增加“默认/专属”来源标签。
+- 等级默认 API 固定为 `setLevelDefault(level, activeActions, clearActions)`，产生/消除列表不得合并。
+- 配置页采用左侧全目录和固定右侧详情；`PendingEventConfig` 跨选择保存原始/暂存值，操作员一次应用全部脏事件的差异。
+- 脏状态刷新和离开统一提供 Apply/Discard/Cancel；Cancel 阻止离开并保留选择/暂存，重复提示由 `dirtyPromptActive_` 防护。
+- `LinkageEngine` 用一个 `configMutex_` 保护动作、显示名、事件/等级配置、fallback 和两侧禁用集合。回调采用不可变 shared handle，锁内快照，锁外析构和调用。
+- 响应式动作名由生产 `ElidedLabel` 右侧省略绘制，完整 tooltip/可访问身份保留；真实截图像素而非 `QLabel::text()`/属性单独作为可见性证据。
+
+### 13.2 实现边界
+
+“统一应用”不等于事务。降级、屏蔽和动作启停仍是多个 void 写接口，没有持久化或回滚。动作写前 live query 只 best-effort 跳过删除/换侧动作并保留未触碰变化；query 与 write 之间存在并发窗口。联动一次执行也有名称/fallback 和 callback/禁用状态两个线性化点，不承诺跨调用单版本事务。
+
+既有默认 GUI 通知死锁未因本功能修复：`EventManager` 持非递归锁同步通知，GUI 直接槽刷新后重入同一事件锁。全局通知回调寿命、无界动作队列、模块 shutdown、ID 分隔、JSON 转义、生产桩和目标平台验证仍按风险台账处理。
+
+### 13.3 版本、构建与测试证据
+
+项目生产 Qt 和测试 Qt5Test 目标均为 **5.15.10**。本机 Qt Test 启动信息报告 Ubuntu 22.04 x86_64、QtTest/Qt **5.15.3**、GCC **11.3.0**；系统 `g++ --version` 另报告 **11.4.0**。后端只直接需要 Qt5Core；前端 qmake 目标声明 Core/Gui/Widgets/Concurrent，测试目标另声明 Testlib。
+
+| 检查 | 2026-07-23 结果 |
+|---|---|
+| 后端 `test_linkage_engine -v1` | 12 passed / 0 failed |
+| 前端 `QT_QPA_PLATFORM=offscreen test_alarm_catalog_widget -v1` | 19 passed / 0 failed |
+| 截图槽 `QT_SCALE_FACTOR=1` / `2` | 各 3 passed / 0 failed |
+| 截图槽 `QT_FONT_DPI=120` / `144` | 各 3 passed / 0 failed |
+| 前端 qmake 产品 | 变更后重新链接成功 |
+| README Qt5Core 后端命令与 demo | 重新构建并正常退出 |
+
+截图证据覆盖 1280x760 与 760x720、DPR 映射像素、动作标签以及刷新/应用/状态文本区域。临时空绘制会触发目标墨迹失败；临时 literal `X` 绘制会触发重复内部名 glyph-mask 差异失败。生成 PNG 保持忽略。上述本机证据不替代飞腾 FT/2000、银河麒麟 V10、目标 Qt/Qt5Test 5.15.10 或生产环境验收。
+
+### 13.4 文档与权限边界
+
+当前需求、概要设计、详细设计、类图/调用图/时序图、README 和导航随本功能同步。事件联动配置实施计划的复选框保持原过程记录，本文不宣称 Task 10、用户验收、远程合并或推送完成；本轮未执行 `git push`。

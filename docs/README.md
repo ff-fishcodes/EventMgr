@@ -1,18 +1,19 @@
 # EventMgr 文档中心
 
-本目录按版本区分当前基线与历史资料。2026-07-21 基线交付文档已经完成并通过审查，现作为当前文档基线生效，其中当前需求基线是唯一有效的需求与验收文档。基线记录审查时点的实现；后续代码发生变化而文档尚未同步时，以代码和构建配置为事实依据。原始需求和历史设计仅用于追溯，执行计划记录文档工作的实施过程。
+本目录按版本区分当前基线与历史资料。2026-07-23 当前基线已同步到事件联动配置中心源码 `89dad8b`，其中当前需求基线是唯一有效的需求与验收文档。原始需求和历史设计仅用于追溯，执行计划记录实施过程而不替代设计或验收。
 
 ## 当前基线
 
 | 文档 | 状态 | 说明 |
 |------|------|------|
-| [当前需求基线](superpowers/specs/2026-07-21-software-requirements-baseline.md) | 已完成并审查 | 当前代码已实现的外部行为、业务规则、限制及需求差异 |
-| [概要设计](superpowers/specs/2026-07-21-high-level-design.md) | 已完成并审查 | 系统上下文、模块边界、数据流、依赖和总体设计决策 |
-| [详细设计](superpowers/specs/2026-07-21-detailed-design.md) | 已完成并审查 | 类型、类、接口、成员、生命周期、算法和并发边界 |
-| [架构与行为图](superpowers/specs/2026-07-21-architecture-diagrams.md) | 已完成并审查 | 类图、模块调用关系图和主要业务时序图 |
-| [讨论与审计记录](superpowers/specs/2026-07-21-documentation-discussion-record.md) | 已完成并审查 | 范围选择、方案比较、审计发现、风险和后续建议 |
+| [当前需求基线](superpowers/specs/2026-07-21-software-requirements-baseline.md) | 当前实现 | 当前代码已实现的外部行为、业务规则、限制及需求差异 |
+| [概要设计](superpowers/specs/2026-07-21-high-level-design.md) | 当前实现 | 系统上下文、分阶段联动、单锁快照、依赖和总体设计决策 |
+| [详细设计](superpowers/specs/2026-07-21-detailed-design.md) | 当前实现 | DTO、接口、所有权、算法、并发和配置页状态机 |
+| [架构与行为图](superpowers/specs/2026-07-21-architecture-diagrams.md) | 当前实现 | 类图、配置调用关系、两阶段执行和离开保护时序 |
+| [讨论与审计记录](superpowers/specs/2026-07-21-documentation-discussion-record.md) | 当前实现 | 范围选择、方案比较、验证证据、风险和后续建议 |
 | [文档基线设计方案](superpowers/specs/2026-07-21-documentation-baseline-design.md) | 已确认 | 本轮文档基线的范围、组织方式、事实提取和一致性规则 |
 | [需求文档按当前代码对齐设计](superpowers/specs/2026-07-22-requirements-code-alignment-design.md) | 已确认 | 当前需规、历史需规、原始需求和讨论记录的分层修订规则 |
+| [事件联动配置中心设计](superpowers/specs/2026-07-22-event-configuration-linkage-controls-design.md) | 已确认 | 全目录、分阶段有效动作、暂存应用与单锁快照的批准方案 |
 
 以上当前交付文档共同构成当前基线；当前需求基线是唯一有效的需求与验收文档，设计方案是已确认的编制依据，不替代需求、概要设计或详细设计。
 
@@ -22,6 +23,7 @@
 |------|------|------|
 | [文档基线执行计划](superpowers/plans/2026-07-21-documentation-baseline.md) | 已执行（文档任务） | 本轮需求、设计、图表、讨论记录和导航完善任务的执行依据；不表示风险台账中的代码整改已经实施 |
 | [需求文档按代码对齐计划](superpowers/plans/2026-07-22-requirements-code-alignment.md) | 已执行（文档任务） | 需求基线复核、历史状态声明、讨论记录、导航和一致性验证步骤 |
+| [事件联动配置中心实施计划](superpowers/plans/2026-07-22-event-configuration-linkage-controls.md) | 实施依据 | 后端、前端、测试和 Task 8/Task 9 追溯；计划复选框保持原记录，本导航不据此宣称 Task 10 或远程集成完成 |
 
 ## 推荐阅读顺序
 

@@ -6,13 +6,13 @@
 | 项目 | 内容 |
 |---|---|
 | 文档 ID | `EventMgr-AD-20260721` |
-| 版本 | `1.1` |
-| 日期 | 2026-07-21 |
+| 版本 | `1.2` |
+| 日期 | 2026-07-23 |
 | 状态 | 当前实现审计基线（架构与行为图） |
-| 审计源码基线 | `9a24bda74cde1b41ded65d858e4f89d92162a9be` |
-| 当前需求基线 | [事件管理中心当前需求基线](./2026-07-21-software-requirements-baseline.md)，提交 `9a24bda74cde1b41ded65d858e4f89d92162a9be` |
-| 概要设计 | [事件管理中心概要设计](./2026-07-21-high-level-design.md)，提交 `9d0bdd0f347df42dd6d2319a666a1dc59028814b` |
-| 详细设计 | [事件管理中心详细设计](./2026-07-21-detailed-design.md)，提交 `913da30e76b9decd1bba83534ba2ffd849160075` |
+| 审计源码基线 | `89dad8b` |
+| 当前需求基线 | [事件管理中心当前需求基线](./2026-07-21-software-requirements-baseline.md) |
+| 概要设计 | [事件管理中心概要设计](./2026-07-21-high-level-design.md) |
+| 详细设计 | [事件管理中心详细设计](./2026-07-21-detailed-design.md) |
 | 证据范围 | 根目录 `main.cpp`，`backend/`、`backend/stubs/`、`frontend/` 中的当前 `.h/.cpp` |
 
 本文只表达审计源码基线中已经存在的类、方法与调用。标有“桩”的节点只代表当前仓库中的占位实现。时序图中的“源码后续顺序”表示代码文本规定的逻辑顺序，不等于默认 GUI 同线程路径能够运行到该位置。
@@ -131,20 +131,30 @@ classDiagram
     class LinkageEngine {
         +ActionCallback
         +FallbackCallback
+        -QMutex configMutex_
         -QThreadPool linkagePool_
         +instance() LinkageEngine&$
         +setFallback(FallbackCallback) void
         +executeActive(const Event&) void
         +executeCleared(const Event&) void
-        +getEventActions(...) vector~ActionInfo~
+        +getEventActionGroups(...) EventActionGroups
         +clearAll() void
     }
+    class QMutex
     class ActionRegistry {
         +setup(LinkageEngine&) void$
     }
     class ActionTask {
-        -ActionCallback callback_
+        -shared_ptr~const ActionCallback~ callback_
         +run() void
+    }
+    class LevelActionConfig {
+        +vector~string~ activeActions
+        +vector~string~ clearActions
+    }
+    class LinkageEventActionGroups["LinkageEngine::EventActionGroups"] {
+        +vector~ActionInfo~ activeActions
+        +vector~ActionInfo~ clearActions
     }
     class Event {
         +EventId id
@@ -170,8 +180,7 @@ classDiagram
     class ActionInfo {
         +string name
         +string displayName
-        +bool disabledActive
-        +bool disabledClear
+        +bool enabled
     }
     class AlarmCatalog {
         <<stub>>
@@ -205,6 +214,9 @@ classDiagram
     EventManager ..> SocketServer : static call if notifyCb_ empty
     EventManager ..> LogWriter : static log call
     LinkageEngine ..> ActionInfo : nested return type
+    LinkageEngine ..> LinkageEventActionGroups : returns by value
+    LinkageEngine *-- LevelActionConfig : levelDefaults_ values
+    LinkageEngine *-- QMutex : configMutex_
     LinkageEngine ..> ActionTask : creates per action
     ActionRegistry ..> LinkageEngine : registers callbacks/config
     ActionRegistry ..> CmdSender : registered lambdas call
@@ -226,7 +238,7 @@ classDiagram
         +getCatalog() QVector~CatalogEntry~
         +setDowngrade(...) void
         +setShield(QString) void
-        +getEventActions(...) QVector~ActionEntry~
+        +getEventActionGroups(...) EventActionGroups
         +eventsChanged() signal
         +linkageAction(QString, bool) signal
     }
@@ -249,8 +261,11 @@ classDiagram
     class ActionEntry {
         +QString name
         +QString displayName
-        +bool disabledActive
-        +bool disabledClear
+        +bool enabled
+    }
+    class BridgeEventActionGroups["BackendBridge::EventActionGroups"] {
+        +QVector~ActionEntry~ activeActions
+        +QVector~ActionEntry~ clearActions
     }
     class EventMgrWidget {
         -BackendBridge* bridge_
@@ -266,8 +281,20 @@ classDiagram
     }
     class AlarmCatalogWidget {
         -BackendBridge* bridge_
+        -QMap~QString,PendingEventConfig~ pendingByEvent_
+        -QMap~QString,EventActionGroups~ actionGroupsByEvent_
         +loadCatalog() slot
+        +requestReload() slot
+        +requestLeave() bool
         +on_applyBtn_clicked() slot
+    }
+    class PendingEventConfig
+    class ElidedLabel {
+        -QString fullText_
+        -QString displayText_
+        +paintEvent(...)
+        +resizeEvent(...)
+        +changeEvent(...)
     }
     class AlarmLogWidget {
         -BackendBridge* bridge_
@@ -278,19 +305,25 @@ classDiagram
     class EventManager
     class ConfigManager
     class LinkageEngine
+    class LinkageEventActionGroups["LinkageEngine::EventActionGroups"]
 
     BackendBridge ..> EventEntry : nested return-by-value DTO
     BackendBridge ..> CatalogEntry : nested return-by-value DTO
     BackendBridge ..> ActionEntry : nested return-by-value DTO
+    BackendBridge ..> BridgeEventActionGroups : nested return-by-value DTO
     BackendBridge ..> ExternalAPI : singleton calls
     BackendBridge ..> EventManager : callback injection
     BackendBridge ..> ConfigManager : singleton calls
     BackendBridge ..> LinkageEngine : singleton calls
+    BackendBridge ..> LinkageEventActionGroups : converts grouped result
     EventMgrWidget *-- BackendBridge : QObject parent
     EventMgrWidget *-- EventListWidget : QObject parent
     EventMgrWidget *-- AlarmCatalogWidget : QObject parent
     EventListWidget --> BackendBridge : non-owning
     AlarmCatalogWidget --> BackendBridge : non-owning
+    AlarmCatalogWidget --> PendingEventConfig : pendingByEvent_ values
+    AlarmCatalogWidget --> BridgeEventActionGroups : actionGroupsByEvent_ values
+    AlarmCatalogWidget *-- ElidedLabel : action cell QObject parent
     AlarmLogWidget --> BackendBridge : non-owning / host-created only
 ```
 
@@ -383,7 +416,8 @@ flowchart TB
     subgraph Bridge["BackendBridge"]
         BBA["getActiveEvents"]
         BBC["getCatalog"]
-        BBCFG["set/removeDowngrade\nset/clearShield"]
+        BBG["getEventActionGroups(id, level)"]
+        BBCFG["set/removeDowngrade\nset/clearShield\nenable/disableAction"]
     end
     subgraph Backend["后端查询与配置"]
         APIA["ExternalAPI::getActiveEvents"]
@@ -391,25 +425,33 @@ flowchart TB
         EQ["EventManager::getActiveEvents"]
         CFG["ConfigManager"]
         CAT["AlarmCatalog::getAllDefinitions 桩"]
+        LEG["LinkageEngine::getEventActionGroups"]
+        MUTEX["configMutex_：单次分组快照"]
     end
-    subgraph Unused["公开但当前无调用者 / unused"]
-        ACTQ["BackendBridge::getEventActions"]
-        LEAQ["LinkageEngine::getEventActions"]
+    subgraph Pending["配置页暂存与提交"]
+        LOAD["reloadFromBackend\n建立 original/current"]
+        SELECT["switchSelectedEvent\n只重绘两阶段详情"]
+        APPLY["on_applyBtn_clicked\n遍历脏事件"]
+        LIVE["live group query\n过滤删除/换侧"]
+        DIFF["applyActionDiffs\n逐变化项写入"]
     end
 
     LIST --> BBA
     ALOG --> BBA
     BBA --> APIA --> EQ
     LIST -->|"即时复选框"| BBCFG
-    CATALOG -->|"应用按钮逐行"| BBCFG
-    BBCFG --> CFG
-    CATALOG --> BBC --> APIC
+    CATALOG --> LOAD
+    LOAD --> BBC --> APIC
     APIC --> CAT
     APIC --> CFG
-    ACTQ -->|"内部委托"| LEAQ
+    LOAD --> BBG --> LEG --> MUTEX
+    LOAD --> SELECT
+    CATALOG --> APPLY --> LIVE --> BBG
+    LIVE --> DIFF --> BBCFG --> CFG
+    BBCFG --> LEG
 ```
 
-活跃查询返回 `Event` 副本，再由桥接映射为 `EventEntry`；目录查询返回 `AlarmDef`，再映射为 `CatalogEntry`。动作查询只展示公开接口内部委托，当前源码没有运行时调用者。
+活跃查询返回 `Event` 副本，再由桥接映射为 `EventEntry`。配置页为每个目录事件实际调用分组查询并缓存两阶段 DTO；应用前再次查询 live membership，再通过多个独立写接口提交差异。该流程 best-effort 保留未触碰变化，但不是事务且没有回滚。
 
 <a id="sequence-init"></a>
 ## 4. 模块初始化时序图
@@ -446,7 +488,7 @@ sequenceDiagram
         Module->>Registry: setup(LE)
         Registry->>LE: registerAction(...) x5
         Registry->>LE: configureEvent(...) x3
-        Registry->>LE: setLevelDefault(Emergency, ...)
+        Registry->>LE: setLevelDefault(Emergency, active, clear)
     else api_ != NULL（重复初始化）
         Module-->>Bridge: 立即 return，不再分配或注册
     end
@@ -626,7 +668,7 @@ sequenceDiagram
 **解释与风险**：清除联动的 fallback 同样只在 `fallback_` 已设置时同步调用。清除命中后，无论事件是否屏蔽都同步通知。默认同线程 UI 在第一个连接的列表刷新中重入查询并停止；状态槽不会在本次发射中执行，事件已被改成 `Cleared`，但尚未写日志和删除。宿主另行创建的 `AlarmLogWidget` 也会连接 `eventsChanged`，其相对顺序由构造时机决定。只有无重入的通知路径才会完成“联动调度 -> 通知 -> 日志 -> erase”的源码顺序。两个 `processClearEvent` 重载在锁内行为相同。
 
 <a id="sequence-config"></a>
-## 7. 降级与屏蔽配置时序图
+## 7. 配置暂存、统一应用与离开保护时序图
 
 ```mermaid
 sequenceDiagram
@@ -712,15 +754,107 @@ sequenceDiagram
     Note over Active,EM: 若 eventsChanged 在 EventManager 持锁通知中直接触发 refresh，仍会发生默认死锁
 ```
 
-**解释与风险**：活跃页是单项即时配置并立即刷新。可见行必为未屏蔽状态；用户选中屏蔽后，刷新会跳过该行，所以虽然点击 lambda 和桥接 API 实现了 `clearShield` 分支，正常重建后已无该行可供取消，常规取消屏蔽通过目录页完成。目录页先编辑控件，再由“应用”逐行、逐方法写入，并非一次事务。`ConfigManager` 的每个公开读写方法独立使用 `QMutex`，组合读取不构成一致快照。活跃事件在配置后不会重算已存 `effectiveLevel`，所以降级状态文字可以变化而等级文字/颜色保持旧值；屏蔽状态则在查询后由控件过滤。列表刷新、容器状态和可选日志刷新分别使用三个独立的 `QTimer` 实例；日志定时器只有宿主创建 `AlarmLogWidget` 时才存在。配置方法不主动发 `eventsChanged`，页面主要依赖本地刷新、切页和各自的定时器。
+上图保留活跃列表即时降级/屏蔽路径；配置中心的当前暂存与离开保护路径如下：
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Tabs as EventMgrWidget/QTabWidget
+    participant Catalog as AlarmCatalogWidget
+    participant Bridge as BackendBridge
+    participant CFG as ConfigManager
+    participant LE as LinkageEngine
+    Catalog->>Bridge: getCatalog()
+    loop 全目录事件
+        Catalog->>Bridge: getEventActionGroups(id, originalLevel)
+        Bridge->>LE: getEventActionGroups(...)
+        LE->>LE: configMutex_ 内构造两阶段快照
+        Bridge-->>Catalog: Qt EventActionGroups
+        Catalog->>Catalog: 建立 PendingEventConfig original/current
+    end
+    User->>Catalog: 跨事件编辑降级/屏蔽/产生/消除
+    Note over Catalog: 只改 pendingByEvent_，尚未写后端
+    alt Apply
+        loop 每个脏事件
+            Catalog->>Bridge: 仅写变化的降级/屏蔽
+            Bridge->>CFG: 独立 void 写调用
+            Catalog->>Bridge: getEventActionGroups(live)
+            Bridge->>LE: 单锁 live query
+            Note over Catalog: 跳过已删除/换侧，保留未触碰变化
+            Catalog->>Bridge: enable/disableAction(..., phase)
+            Bridge->>LE: 单次配置锁写入
+        end
+        Catalog->>Catalog: reload / 恢复仍存在的选择
+    else Discard
+        Catalog->>Catalog: reloadFromBackend() 丢弃 pending
+    else Cancel
+        Catalog-->>Tabs: requestLeave=false 或刷新返回
+        Tabs->>Tabs: QSignalBlocker 下恢复配置页
+        Note over Catalog,Tabs: 保留暂存、选择与状态
+    end
+    Note over CFG,LE: 多次独立写入，非事务、无回滚、无持久化
+```
+
+`dirtyPromptActive_` 阻止消息框嵌套事件循环中的重复确认。“统一应用”只表示一次用户动作遍历全部脏事件，不表示事务提交。
 
 <a id="sequence-async"></a>
-## 8. 联动动作异步执行时序图
+## 8. 产生侧与消除侧联动异步执行时序图
+
+### 8.1 产生侧
 
 ```mermaid
 sequenceDiagram
     participant EM as EventManager
     participant LE as LinkageEngine
+    participant M as configMutex_
+    participant P as QThreadPool
+    participant F as FallbackCallback
+    EM->>LE: executeActive(event)
+    LE->>M: lock
+    LE->>LE: active 默认优先 + 事件列表稳定去重
+    LE->>LE: snapshot names + fallback handle
+    LE->>M: unlock
+    LE->>M: lock
+    LE->>LE: 按 active 禁用状态 snapshot callback handles
+    LE->>M: unlock
+    loop callbacks
+        LE-->>P: start(ActionTask(handle))
+    end
+    LE->>F: 锁外 invoke(eventId,true)
+    LE-->>EM: 不等待任务完成
+```
+
+### 8.2 消除侧
+
+```mermaid
+sequenceDiagram
+    participant EM as EventManager
+    participant LE as LinkageEngine
+    participant M as configMutex_
+    participant P as QThreadPool
+    participant F as FallbackCallback
+    EM->>LE: executeCleared(event)
+    LE->>M: lock
+    LE->>LE: clear 默认优先 + 事件列表稳定去重
+    LE->>LE: snapshot names + fallback handle
+    LE->>M: unlock
+    LE->>M: lock
+    LE->>LE: 按 clear 禁用状态 snapshot callback handles
+    LE->>M: unlock
+    loop callbacks
+        LE-->>P: start(ActionTask(handle))
+    end
+    LE->>F: 锁外 invoke(eventId,false)
+    LE-->>EM: 不等待任务完成
+```
+
+### 8.3 共用调度与关闭边界
+
+```mermaid
+sequenceDiagram
+    participant EM as EventManager
+    participant LE as LinkageEngine
+    participant Mutex as configMutex_
     participant Pool as "QThreadPool(max 4)"
     participant Task as ActionTask
     participant Callback as "ActionCallback"
@@ -733,30 +867,40 @@ sequenceDiagram
         LE-->>EM: 立即返回
         Note over LE,Fallback: 不解析、不入池，也不调用 fallback
     else Active
+        LE->>Mutex: lock
+        LE->>LE: 先追加 active 等级默认并稳定去重
         alt eventConfig_ 存在 event.id
-            LE->>LE: base = configured activeNames
+            LE->>LE: 再追加 configured activeNames
         else 无事件配置
-            LE->>LE: base = event.activeActions
+            LE->>LE: 再追加 event.activeActions
         end
-        LE->>LE: 追加 originalLevel 对应 levelDefaults_（可重复）
+        LE->>LE: snapshot names + fallback shared handle
+        LE->>Mutex: unlock
+        LE->>Mutex: lock
         loop 每个动作名
-            LE->>LE: isActionDisabled(id, name, true)
+            LE->>LE: 按 active 禁用状态快照 callback shared handle
             alt 已禁用或名称未注册
                 Note over LE: 静默跳过
             else 已注册且未禁用
                 LE-->>Pool: start(new ActionTask(callback))
             end
         end
+        LE->>Mutex: unlock
         opt fallback_ 已设置
-            LE->>Fallback: fallback_(id, true)，在调用线程同步执行
+            LE->>Fallback: 锁外 invoke(id, true)，在调用线程同步执行
         end
         LE-->>EM: 不等待任务完成即返回
     else Cleared
+        LE->>Mutex: lock
+        LE->>LE: 先追加 clear 等级默认并稳定去重
         alt eventConfig_ 存在 event.id
-            LE->>LE: names = configured clearNames
+            LE->>LE: 再追加 configured clearNames
         else 无事件配置
-            LE->>LE: names = event.clearActions
+            LE->>LE: 再追加 event.clearActions
         end
+        LE->>LE: snapshot names + fallback shared handle
+        LE->>Mutex: unlock
+        LE->>Mutex: lock
         loop 每个动作名
             LE->>LE: isActionDisabled(id, name, false)
             alt 已注册且未禁用
@@ -765,8 +909,9 @@ sequenceDiagram
                 Note over LE: 静默跳过
             end
         end
+        LE->>Mutex: unlock
         opt fallback_ 已设置
-            LE->>Fallback: fallback_(id, false)，在调用线程同步执行
+            LE->>Fallback: 锁外 invoke(id, false)，在调用线程同步执行
         end
         LE-->>EM: 不等待任务完成即返回
     end
@@ -786,8 +931,9 @@ sequenceDiagram
     LE->>Pool: waitForDone()
     Note over Caller,Pool: 仅 clearAll 显式等待；阻塞 callback 可使其长期不返回
     Pool-->>LE: 已提交任务全部完成
-    LE->>LE: 清空动作、配置、默认和禁用集合
+    LE->>Mutex: lock / 交换清空动作、fallback、配置、默认和禁用集合 / unlock
+    Note over LE,Mutex: callback/fallback 句柄在锁外析构
     LE-->>Caller: 返回
 ```
 
-**解释与风险**：产生侧的事件显式配置会替代 `event.activeActions`，随后仍追加原始等级默认；清除侧的显式配置会替代 `event.clearActions`，且不追加等级默认。线程池只限制同时执行数为 4，没有背压、队列上限、超时、取消、结果收集或普通事件路径的完成等待。fallback 不是线程池任务；仅当 `fallback_` 已设置时，才在所有入池调用之后同步执行。即使动作列表为空、全部禁用或名称未注册，只要原始等级不是 `Info` 且 fallback 已设置，callback 仍会执行；`fallback_` 为空时没有该动作。GUI 桥接初始化会设置 fallback，根目录后端演示不会。`LinkageEngine` 的配置和禁用容器没有锁，图中不暗示跨线程修改安全。
+**解释与风险**：产生和消除侧都按“对应等级默认优先、事件列表随后、首次出现保留”的规则解析。名称/fallback 与 callback/禁用状态分别在两个配置锁临界区快照，因此支持并发读写但不是单一事务版本。任务和 fallback 均在引擎配置锁外调用；上层 `EventManager` 仍持有自身事件锁。线程池没有背压、队列上限、超时、取消或结果聚合。`clearAll()` 仅限调用方已停止新执行并等待在途 `execute*()` 返回的关闭/测试边界。

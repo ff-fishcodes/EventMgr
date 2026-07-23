@@ -3,14 +3,14 @@
 | 元数据项 | 值 |
 |---|---|
 | 文档 ID | `EVENTMGR-HLD-20260721` |
-| 版本 | 1.2 |
-| 日期/状态 | 2026-07-21 / 当前实现审计快照 |
-| 源码审计基线 | `9a24bda74cde1b41ded65d858e4f89d92162a9be` |
-| 需求审计基线 | [当前需求基线](./2026-07-21-software-requirements-baseline.md)，由提交 `9a24bda74cde1b41ded65d858e4f89d92162a9be` 引入 |
+| 版本 | 1.3 |
+| 日期/状态 | 2026-07-23 / 当前实现设计 |
+| 源码审计基线 | `89dad8b` |
+| 需求审计基线 | [当前需求基线](./2026-07-21-software-requirements-baseline.md) |
 
 ## 1. 设计范围
 
-本文档描述源码审计基线提交 `9a24bda` 所含后端、前端和构建配置的系统上下文、总体架构、模块边界、核心数据流、部署方式、并发模型、对象所有权、依赖及主要设计决策。“当前实现审计快照”表示对该提交中文件内容的静态审计结论，不表示之后提交自动纳入本文，也不表示目标平台或运行行为已经完成验证。[文档基线设计方案](./2026-07-21-documentation-baseline-design.md)为本轮文档工作的已确认范围。
+本文档描述源码基线 `89dad8b` 所含后端、前端和构建配置的系统上下文、总体架构、模块边界、核心数据流、部署方式、并发模型、对象所有权、依赖及主要设计决策。目标平台和目标 Qt 版本仍须独立验证。
 
 本文档只解释当前总体设计，不展开逐方法参数、成员和失败分支。实现细节、图示和讨论过程分别由已完成并审查的[详细设计](./2026-07-21-detailed-design.md)、[架构与行为图](./2026-07-21-architecture-diagrams.md)和[讨论与审计记录](./2026-07-21-documentation-discussion-record.md)承载；五份交付文档共同构成[当前文档基线](../../README.md#当前基线)。历史文档和 `doc/requirment.md` 只用于追溯原始目标，不作为当前实现已经具备某项能力的证据。
 
@@ -64,7 +64,7 @@
 | `ExternalAPI` | 作为事件创建、产生、清除、查询及目录合并的门面 | 委托 `EventManager`/`ConfigManager`，读取 `AlarmCatalog` 和 `system_events`；见 `backend/external_api.cpp` |
 | `EventManager` | 按 ID 维护活跃事件，计算加入时有效等级，编排联动、通知和日志 | `processAddEvent()`、两个 `processClearEvent()`、`getActiveEvents()` |
 | `ConfigManager` | 在内存中保存降级映射和屏蔽集合 | `downgradeMap_`、`shieldSet_` 由自身非递归 `QMutex` 保护 |
-| `LinkageEngine` | 解析事件动作、等级默认和禁用状态，通过私有线程池调度命名回调 | `resolveActiveNames()`、`resolveClearNames()`、`executeNames()`；线程池上限为 4 |
+| `LinkageEngine` | 按产生/消除阶段解析默认与事件动作，稳定去重并查询禁用状态；用单个配置锁快照不可变回调句柄，再由私有线程池调度 | `resolveNamesLocked()`、`effectiveConfiguredNamesLocked()`、`executeNames()`；线程池上限为 4 |
 | `ActionRegistry` | 集中登记当前示例动作、显示名、事件绑定和等级默认 | `ActionRegistry::setup()`；动作最终调用控制桩，不代表真实控制已接入 |
 
 ### 4.2 公共定义
@@ -78,10 +78,10 @@
 
 | 模块 | 概要职责 | 当前约束 |
 |---|---|---|
-| `BackendBridge` | 调用后端单例、转换 `QString`/STL 类型、发出 `eventsChanged` 和 `linkageAction` | 当前为进程内直连；模拟入口只接受按 `-` 拆分后恰好三段的 ID |
-| `EventMgrWidget` | 创建桥接及两个页签，连接事件变化信号并显示屏蔽计数 | 实际创建 `EventListWidget` 和 `AlarmCatalogWidget`，未创建 `AlarmLogWidget` |
+| `BackendBridge` | 调用后端单例、转换分阶段动作 DTO 与其他 Qt/STL 类型、发出 `eventsChanged` 和 `linkageAction` | 当前为进程内直连；动作查询一次取得 `EventActionGroups`，不排序或推断来源 |
+| `EventMgrWidget` | 创建桥接及两个页签，连接事件变化信号、显示屏蔽计数并保护离开脏配置页 | Cancel 在信号阻塞下恢复配置页；未创建 `AlarmLogWidget` |
 | `EventListWidget` | 每秒及收到信号时拉取活跃事件，显示有效等级并提供配置复选框 | 拉取后跳过屏蔽事件；界面降级目标固定为 `Info(4)` |
-| `AlarmCatalogWidget` | 展示合并后的设备/系统目录，批量应用降级与屏蔽 | 目录设备部分来自桩；界面降级目标固定为 `Info(4)` |
+| `AlarmCatalogWidget` | 展示全目录、固定降级、屏蔽及产生/消除动作；跨事件暂存并统一差异应用 | 固定右侧详情面板；动作不展示默认/专属来源；写入是非事务 best-effort |
 | `AlarmLogWidget` | 以两列表格轮询显示当前未屏蔽活跃事件 | 名称虽含“Log”，但不是持久历史日志；当前主控件未装配该控件 |
 
 ### 4.4 外部桩
@@ -123,10 +123,13 @@
 
 - 降级和屏蔽配置直接由桥接调用 `ConfigManager` 单例。`effectiveLevel` 只在事件加入时计算；修改配置不会重算已活跃事件中的值。
 - 活跃查询在 `EventManager` 持锁期间复制事件值，桥接随后逐项查询降级和屏蔽状态；返回顺序由 `unordered_map` 决定，不保证稳定。
-- 产生联动采用事件产生动作并追加 `originalLevel` 对应的等级默认动作；清除联动只采用清除动作。同名不去重，未注册或已禁用动作不提交。
-- 每个可执行动作成为独立 `QRunnable`，异步提交后调用方不等待。若事件原始等级不是 `Info`，fallback 在动作提交循环之后由调用线程同步执行，即使没有任何动作真正提交也会调用。
+- `AlarmCatalogWidget` 加载每个目录事件及其 `EventActionGroups`，在 `PendingEventConfig` 中同时保存后端原始值和当前暂存值。行切换只重绘右侧产生/消除表；刷新或离开脏页面执行 Apply/Discard/Cancel 决策。
+- “应用配置”遍历所有脏事件，降级、屏蔽及两阶段动作只写变化项。动作写入前重新查询 live groups，跳过已删除或换侧动作，并保留未触碰动作的并发变化；查询到逐项 void 写入之间不是事务，没有回滚。
+- 产生和消除侧都先追加 `originalLevel` 对应的等级默认列表，再追加事件显式列表；没有事件显式配置的运行时解析改用 `Event` 自带对应列表。两侧分别保持首次出现顺序并稳定去重，`Info` 不解析动作或 fallback。
+- `getEventActionGroups()` 在一个 `configMutex_` 临界区返回两阶段有效列表；缺显示名时用内部名，已配置但无回调的名称仍可查询。动作未注册、已禁用或空 callback 时不提交执行。
+- 每个可执行动作成为独立 `ActionTask`。引擎先在锁内快照名称与 fallback 不可变句柄，再在第二个锁内按当时禁用状态快照动作句柄，随后锁外入池并锁外同步调用 fallback。因此一次执行是两个线性化点的 best-effort 视图，不是跨配置调用事务。
 
-证据：`ConfigManager::getEffectiveLevel()`，`EventManager::getActiveEvents()`，`LinkageEngine::resolveActiveNames()`、`resolveClearNames()`、`executeActive()`、`executeCleared()`、`executeNames()`。
+证据：`AlarmCatalogWidget::reloadFromBackend()`、`on_applyBtn_clicked()`、`LinkageEngine::resolveNamesLocked()`、`getEventActionGroups()`、`executeActive()`、`executeCleared()`、`executeNames()`。
 
 ## 6. 部署与通信模式
 
@@ -144,23 +147,23 @@
 |---|---|---|
 | `EventManager` | 成员 `QMutex`；增、删、查均以 `QMutexLocker` 持有 | 锁覆盖联动调度、同步 fallback、同步通知和日志调用；`setNotifyCallback()` 不持锁，而执行路径读取 `notifyCb_`，并发设置与读取存在数据竞争 |
 | `ConfigManager` | 独立成员 `QMutex`；降级/屏蔽读写均持锁 | 与事件锁是不同锁；配置只保护自身容器，不代表整体事务一致性 |
-| `LinkageEngine` | 自有 `QThreadPool linkagePool_`，最大线程数 4 | 动作回调异步并发；动作表、显示名、事件配置、等级默认、`fallback_` 和禁用集合没有互斥保护，`setFallback()` 与执行读取并发时同样存在数据竞争 |
+| `LinkageEngine` | 单个 `configMutex_` 保护动作表、显示名、事件/等级配置、fallback 和两侧禁用集合；自有 4 线程池 | 名称/fallback 与回调/禁用状态有两个线性化点；回调句柄锁内快照、对象析构和用户代码均在锁外；不保证跨调用事务 |
 | Qt 展示层 | 当前默认对象在 GUI 线程创建，未指定队列连接 | 当事件也从 GUI 线程触发时，`eventsChanged` 自动连接表现为同线程直接调用；刷新重入事件锁，形成当前默认 UI 死锁。跨线程排队路径不能由此直接推断为死锁 |
 | 桩动作 | `CmdSender` 在工作线程中阻塞约 2 秒模拟 ACK | 只验证异步形态，不构成真实性能或可靠性指标 |
 
-动作任务的回调副本由 `ActionTask` 持有，任务设置自动删除；`LinkageEngine::clearAll()` 会先等待线程池完成再清空配置。但常规事件处理不会等待动作完成，动作完成顺序不确定。线程池最大线程数 4 只限制同时运行的任务数，不限制提交数量；当前代码没有设置等待队列上限、背压、取消或陈旧动作淘汰策略，阻塞或慢动作持续到达时任务可能累积。fallback 不在线程池内执行，而是在调度动作后、仍处于 `EventManager` 锁范围内同步执行。
+动作任务持有 `shared_ptr<const ActionCallback>`，任务设置自动删除；替换动作/fallback 时旧句柄在离开配置锁后析构，避免析构函数重入锁。`clearAll()` 仅限关闭/测试：调用方须先停止新执行并等待在途 `execute*()` 返回，函数再等待线程池、锁内交换容器并在锁外释放回调。常规事件处理不等待动作完成，队列仍无上限。fallback 不在线程池内执行；它在引擎配置锁外同步执行，但调用仍处于上层 `EventManager` 锁范围内。
 
 ## 8. 生命周期与所有权
 
 | 对象或资源 | 创建与持有 | 释放现状 | 所有权风险 |
 |---|---|---|---|
 | `ConfigManager` | `EventMgrModule::init()` 动态分配，指针同时保存在 `EventMgrModule::configMgr_` 和单例注册表 | 无 shutdown/release，进程退出前不删除 | 进程期泄漏式所有权；初始化前调用 `instance()`/`config()` 会解引用空指针 |
-| `LinkageEngine` | 同上，并被 `EventManager` 引用 | 无模块级删除；自身析构为空 | 线程池与回调生命周期依赖进程退出；配置仅存内存 |
+| `LinkageEngine` | 同上，并被 `EventManager` 引用 | 无模块级删除；自身析构显式 | 线程池与回调生命周期依赖进程退出；配置仅存内存；`clearAll()` 有 shutdown-only 前置条件 |
 | `EventManager` | 动态分配，持有 `ConfigManager`/`LinkageEngine` 引用 | 无模块级删除 | 引用依赖上述对象先存在；通知回调可捕获寿命更短的桥接对象 |
 | `ExternalAPI` | 最后动态分配，持有 `EventManager`/`ConfigManager` 引用 | 无模块级删除 | 单例没有空值保护，依赖固定初始化顺序 |
 | `BackendBridge` | `EventMgrWidget` 以 `this` 为 Qt parent 创建 | 随父控件销毁 | 后端单例保存捕获该桥接对象的通知/fallback lambda，桥接析构时没有解除回调，之后触发后端会有悬空捕获风险；后初始化桥接还会覆盖前一桥接的两个回调 |
 | 前端页、定时器和多数控件 | 由 Qt parent-child 关系管理 | 随父对象销毁 | `EventMgrWidget` 当前不创建 `AlarmLogWidget`；后者只有被宿主显式创建时才参与运行 |
-| `ActionTask` | `executeNames()` 按动作 `new`，交给线程池 | `setAutoDelete(true)` 由线程池执行后删除 | 调用方不拥有任务，也不等待完成 |
+| `ActionTask` | `executeNames()` 按动作 `new`，交给线程池；持有不可变 shared callback | `setAutoDelete(true)` 由线程池执行后删除 | 句柄保证任务执行期间 callback 存活；调用方不等待完成 |
 
 四个后端对象的关系由构造函数引用注入建立，但运行期访问主要通过静态单例。`EventMgrModule::init()` 只以 `api_` 是否为空做重复初始化保护，没有并发初始化互斥，也没有所有权封装。证据：`backend/event_mgr_module.cpp`、各核心类 `instance()`/`setInstance()`、`BackendBridge::initialize()`、`ActionTask` 构造函数。
 
@@ -168,11 +171,12 @@
 
 | 依赖 | 项目声明或用途 | 当前本机验证（2026-07-21） | 边界 |
 |---|---|---|---|
-| C++ | `frontend/frontend.pro` 声明 C++11；后端使用 C++11 标准库 | GCC 11.4.0 | 编译器版本是本机结果，不等同目标平台工具链 |
+| C++ | 三个 qmake 工程均声明 C++11；后端使用 C++11 标准库 | 测试程序报告 GCC 11.3.0；系统 `g++` 为 11.4.0 | 两种本机证据均不等同目标平台工具链 |
 | Qt | 工程注释声明 Qt 5.15.10 | qmake 3.1，Qt 5.15.3 | 项目声明与本机安装版本分别记录，不混写为同一版本 |
 | Qt5Core | `QObject`、`QString`、`QMutex`、`QMutexLocker`、`QThreadPool`、`QRunnable` 等 | 5.15.3 | 后端源码的直接 Qt 依赖是 Qt5Core，不能描述为 Qt-free |
 | Qt5Gui/Qt5Widgets | 前端窗口、控件、颜色、布局和 UI 生成代码 | 随本机 Qt 5.15.3 | 前端直接依赖 |
 | Qt5Concurrent | `frontend.pro` 声明 `concurrent` | 5.15.3 | 当前后端没有调用 QtConcurrent API，不是后端源码的直接 API 依赖 |
+| Qt5Test | 两个独立测试工程声明 `testlib`；项目目标 5.15.10 | QtTest 5.15.3 | 只进入测试目标，不进入生产前端目标 |
 | C++ 标准库 | 容器、函数对象、时间、字符串流、线程休眠等 | 随 GCC 11.4.0 | `std::localtime` 等调用没有额外跨线程保护 |
 
 仓库没有引入其他可识别的包管理依赖。外部桩是项目源文件，不是第三方库。
@@ -188,6 +192,16 @@ make
 ```
 
 等价地可在选定构建目录对 `frontend/frontend.pro` 执行 qmake，再在该构建目录执行 make。`frontend.pro` 声明 `QT += core gui widgets concurrent`、`CONFIG += c++11`，并将全部当前后端与桩源码直接编入 `EventMgrFrontend`。这也是当前同进程集成的构建证据。
+
+两个 Qt5Test 目标分别验证后端联动契约与完整配置页行为：
+
+```bash
+mkdir -p build-tests/linkage build-tests/catalog
+cd build-tests/linkage && qmake ../../tests/linkage_engine_test.pro && make -j4
+./test_linkage_engine -v1
+cd ../catalog && qmake ../../tests/alarm_catalog_widget_test.pro && make -j4
+QT_QPA_PLATFORM=offscreen ./test_alarm_catalog_widget -v1
+```
 
 后端最小源码示例可使用 C++11 并只链接 Qt5Core；`QMutex`、`QThreadPool` 和 `QRunnable` 均由 Qt5Core 提供。本机 Qt 使用 reduce-relocations，验证命令需要 `-fPIC -no-pie`：
 
@@ -206,8 +220,8 @@ g++ -std=c++11 -fPIC -no-pie -I backend -I backend/stubs \
 | 风险 | 当前表现 | 设计影响 |
 |---|---|---|
 | 默认 UI 重入死锁 | 默认 UI 中事件从 GUI 线程触发，通知在持有 `EventManager` 非递归锁时同步发出，同线程/直接连接刷新后重入查询 | 该条件下未屏蔽产生、所有命中清除可卡死，清除后续日志和删除不会完成；不据此断言跨线程或排队连接也必然死锁 |
-| 回调并发与单订阅约束 | `EventManager::notifyCb_` 和 `LinkageEngine::fallback_` 的 setter 均无锁，执行路径也无配套同步；每次桥接初始化覆盖两个单值槽 | 并发设置/读取存在数据竞争；当前只支持一个有效桥接，最后初始化者接管通知和 fallback，多个桥接不独立订阅 |
-| 联动配置数据竞争 | `LinkageEngine` 容器和 `fallback_` 无锁 | 不得把注册、配置、查询和执行宣称为可任意跨线程并发 |
+| 回调并发与单订阅约束 | `EventManager::notifyCb_` 仍无锁；`LinkageEngine::fallback_` 已由配置锁和不可变句柄保护；每次桥接初始化覆盖两个单值槽 | 事件通知 setter/读取仍有数据竞争；当前只支持一个有效桥接，多个桥接不独立订阅 |
+| 联动快照边界 | `LinkageEngine` 全部配置由单锁保护，但名称/fallback 和回调/禁用状态在两个临界区快照 | 允许并发配置/查询/执行，不承诺一次执行观察单一跨调用事务版本 |
 | 回调生命周期 | 后端进程期单例保存捕获 `BackendBridge::this` 的 lambda | 当前有效桥接销毁后若后端继续运行，存在悬空访问风险 |
 | 内存状态 | 活跃表、降级、屏蔽、联动配置与禁用集合均无持久化 | 重启丢失；无法充当历史审计或配置事实源 |
 | ID 解析歧义 | 使用 `-` 拼接；后端按前两个分隔符解析，前端模拟入口要求恰好三段，帧号用宽松转换 | 设备名/字段含 `-` 时行为不一致；非法帧号可能被转换为 0 |
@@ -217,6 +231,7 @@ g++ -std=c++11 -fPIC -no-pie -I backend -I backend/stubs \
 | 外部能力为桩 | Socket、日志、目录、命令、蜂鸣器均缺少生产机制 | 无鉴权、可靠投递、持久化、重试、错误恢复或真实设备保证 |
 | 异步动作语义与过载 | 任务独立提交，不等待、不聚合结果；私有线程池最多同时运行 4 个任务，但当前代码未设置等待队列上限、背压、取消或陈旧动作策略 | 动作顺序和完成时间不确定；阻塞动作下可能持续积压，也没有失败回传或事务回滚 |
 | 生命周期接口缺失 | 核心对象动态分配，无 shutdown/release | 无法有序停止线程池、解除回调或重复建立隔离实例 |
+| 配置应用边界 | 目录页统一提交多个独立 void 写接口，动作写前仅做 live membership 查询 | 无持久化、事务或回滚；并发修改窗口内只提供 best-effort 保留/跳过策略 |
 
 屏蔽只控制产生侧主动通知，并由前端拉取视图再次过滤；它不阻止入表、联动或源码中的日志调用。清除侧没有屏蔽判断。降级只改变 `effectiveLevel` 和显示/config 状态，联动资格与等级默认始终使用 `originalLevel`。这些是当前业务语义，不应按原始需求中的“降级解除管控”解释。
 
@@ -228,11 +243,12 @@ g++ -std=c++11 -fPIC -no-pie -I backend -I backend/stubs \
 | HLD-DEC-002 | 前后端通信 | `BackendBridge` 同进程直调单例并覆盖两个进程全局单值回调 | 历史/原始设计考虑前后端分离；当前 `SocketServer` 只是打印桩 | 当前仅一体、单有效桥接模式；最后初始化者接管回调，Socket 代理/分离模式未实现 |
 | HLD-DEC-003 | 活跃存储 | `EventManager` 使用 `unordered_map<EventId, Event>`，按 ID 查重和定位 | 原始目标要求统一管理事件，未要求数据库持久化 | 当前决策；平均常数时间定位、无顺序保证，状态随进程消失 |
 | HLD-DEC-004 | 配置存储 | `ConfigManager` 用内存映射/集合保存降级和屏蔽，联动禁用也存内存 | 原始需求关注配置能力；没有当前持久化实现证据 | 当前决策；实现轻量，重启丢失且无跨进程共享 |
-| HLD-DEC-005 | 联动扩展 | `LinkageEngine` 以字符串名称登记 `std::function` 回调，事件配置保存动作名 | 历史提交 `c22e69c` 引入命名注册，`ActionRegistry` 集中装配 | 当前决策；解耦事件与调用点，但名称缺少编译期校验，配置容器无锁 |
+| HLD-DEC-005 | 联动扩展 | `LinkageEngine` 以字符串名称登记不可变 shared callback，单锁保护配置并按阶段查询 | `ActionRegistry` 集中装配；三参数等级默认 API 同时给出产生/消除列表 | 当前决策；支持并发快照但名称缺少编译期校验，一次执行有两个线性化点 |
 | HLD-DEC-006 | 动作执行 | 每个动作提交到 `LinkageEngine` 私有 4 线程池，fallback 在提交后同步调用 | 早期历史设计中的串行/单线程描述不再代表当前实现 | 当前并发决策；4 仅为运行并发上限，代码未设队列上限、背压或取消，也无结果聚合、顺序或完成时限保证 |
 | HLD-DEC-007 | 等级语义 | `effectiveLevel` 用于加入时的降级结果和展示；联动始终依据 `originalLevel` | 原始需求曾把降级与解除管控关联；历史提交 `bfb8674` 明确改变语义 | 当前决策；显示降级不削弱联动，必须避免用户误解 |
 | HLD-DEC-008 | 持久化 | 活跃事件、配置、禁用和日志均没有持久化路径，`LogWriter` 仅打印 | “记录事件/支持排查”是原始目标，不等于当前已有历史库 | 当前限制；重启后无恢复和历史审计能力 |
 | HLD-DEC-009 | 标识格式 | 设备使用 `deviceName-frameID-alarmField`，纯系统事件使用单段名称 | 历史提交 `637e49e` 由 `protocolID` 改为 `deviceName`；部分旧注释仍不一致 | 当前决策；人类可读，但分隔符未转义导致解析限制 |
 | HLD-DEC-010 | 生命周期 | 四个后端对象按进程期动态分配，没有关闭或释放 API | 这是当前实现结果，并非已确认的长期资源管理目标 | 当前限制；回调解除和有序停机没有设计闭环 |
+| HLD-DEC-011 | 配置页工作流 | 全目录固定左表/右详情，跨事件暂存降级、屏蔽和两阶段动作，统一应用差异 | 用户确认不展示默认/专属来源标签，并要求离开脏页保护 | 当前决策；操作一致但写入非事务、无回滚或持久化 |
 
 上述决策表只追踪当前代码已经体现的选择及其来源，不把历史说明中的设想升级为承诺。后续若修复锁范围、引入持久化、实现 Socket 代理或调整等级语义，应同步更新[当前需求基线](./2026-07-21-software-requirements-baseline.md)、本概要设计、[详细设计](./2026-07-21-detailed-design.md)与[架构和行为图](./2026-07-21-architecture-diagrams.md)，并在[讨论与审计记录](./2026-07-21-documentation-discussion-record.md)中保存方案比较和确认过程。
