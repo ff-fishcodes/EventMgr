@@ -264,8 +264,8 @@ void verifyActionTextRendering(QTableWidget* table,
                              label->contentsRect().width(),
                          "Elided action text still exceeds its contents rect");
                 QVERIFY(displayText != fullText);
-                QVERIFY2(displayText.contains(QChar(0x2026)) ||
-                             displayText.contains(QString::fromLatin1("...")),
+                QVERIFY2(displayText.endsWith(QChar(0x2026)) ||
+                             displayText.endsWith(QString::fromLatin1("...")),
                          "Overflowing action text must use explicit right elision");
             } else {
                 QCOMPARE(displayText, fullText);
@@ -394,6 +394,96 @@ void verifyRegionHasTextInk(const QImage& image,
 QRect mappedContentsRect(const QWidget* child, const QWidget* ancestor) {
     const QRect contents = child->contentsRect();
     return QRect(child->mapTo(ancestor, contents.topLeft()), contents.size());
+}
+
+struct RenderedInkMask {
+    QSize size;
+    QVector<quint8> pixels;
+    int inkCount;
+};
+
+// Extracts foreground ink relative to the region's own dominant background.
+// Colors are bucketed before choosing the background so minor palette and
+// antialiasing variations do not turn a flat row background into false ink.
+RenderedInkMask renderedInkMask(const QImage& image,
+                                const QRect& logicalRect,
+                                qreal devicePixelRatio) {
+    const QRect pixelRect = logicalRectToPixels(logicalRect, devicePixelRatio)
+        .intersected(image.rect());
+    RenderedInkMask mask = {pixelRect.size(), QVector<quint8>(), 0};
+    if (pixelRect.isEmpty()) return mask;
+
+    QHash<quint32, int> buckets;
+    for (int y = pixelRect.top(); y <= pixelRect.bottom(); ++y) {
+        for (int x = pixelRect.left(); x <= pixelRect.right(); ++x) {
+            const QRgb pixel = image.pixel(x, y);
+            const quint32 bucket = (quint32(qRed(pixel) >> 4) << 8) |
+                                   (quint32(qGreen(pixel) >> 4) << 4) |
+                                   quint32(qBlue(pixel) >> 4);
+            ++buckets[bucket];
+        }
+    }
+
+    quint32 backgroundBucket = 0;
+    int backgroundCount = -1;
+    for (QHash<quint32, int>::const_iterator it = buckets.constBegin();
+         it != buckets.constEnd(); ++it) {
+        if (it.value() > backgroundCount) {
+            backgroundBucket = it.key();
+            backgroundCount = it.value();
+        }
+    }
+    const int backgroundRed = int((backgroundBucket >> 8) & 0xf) * 16 + 8;
+    const int backgroundGreen = int((backgroundBucket >> 4) & 0xf) * 16 + 8;
+    const int backgroundBlue = int(backgroundBucket & 0xf) * 16 + 8;
+
+    mask.pixels.reserve(pixelRect.width() * pixelRect.height());
+    const int foregroundThreshold = 24;
+    for (int y = pixelRect.top(); y <= pixelRect.bottom(); ++y) {
+        for (int x = pixelRect.left(); x <= pixelRect.right(); ++x) {
+            const QRgb pixel = image.pixel(x, y);
+            const int distance = qMax(qAbs(qRed(pixel) - backgroundRed),
+                qMax(qAbs(qGreen(pixel) - backgroundGreen),
+                     qAbs(qBlue(pixel) - backgroundBlue)));
+            const quint8 isInk = distance >= foregroundThreshold ? 1 : 0;
+            mask.pixels.append(isInk);
+            mask.inkCount += isInk;
+        }
+    }
+    return mask;
+}
+
+void verifyRenderedRegionsDiffer(const QImage& image,
+                                 const QRect& firstLogicalRect,
+                                 const QRect& secondLogicalRect,
+                                 qreal devicePixelRatio) {
+    const RenderedInkMask first = renderedInkMask(
+        image, firstLogicalRect, devicePixelRatio);
+    const RenderedInkMask second = renderedInkMask(
+        image, secondLogicalRect, devicePixelRatio);
+    QVERIFY2(!first.size.isEmpty() && !second.size.isEmpty(),
+             "Duplicate-action rendered regions must map into the screenshot");
+    QCOMPARE(first.size, second.size);
+
+    const int minimumInk = qMax(12, qRound(12.0 * devicePixelRatio *
+                                          devicePixelRatio));
+    QVERIFY2(first.inkCount >= minimumInk && second.inkCount >= minimumInk,
+             "Duplicate-action rendered regions must both contain text ink");
+
+    int differingPixels = 0;
+    int unionPixels = 0;
+    for (int i = 0; i < first.pixels.size(); ++i) {
+        if (first.pixels[i] || second.pixels[i]) ++unionPixels;
+        if (first.pixels[i] != second.pixels[i]) ++differingPixels;
+    }
+    const int minimumDifference = qMax(
+        qRound(8.0 * devicePixelRatio * devicePixelRatio), unionPixels / 20);
+    QVERIFY2(differingPixels >= minimumDifference &&
+                 differingPixels * 100 >= unionPixels * 8,
+             qPrintable(QString::fromLatin1(
+                 "Duplicate internal names painted indistinguishable glyph masks: "
+                 "%1 differing pixels across %2 foreground pixels")
+                 .arg(differingPixels).arg(unionPixels)));
 }
 
 // Returns the expected glyph area for ordinary QLabel/QPushButton text. It is
@@ -1318,10 +1408,12 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
         verifyActionTextRendering(active, size.width == 760);
         verifyActionTextRendering(clear, false);
 
+        QLabel* primaryInternal = nullptr;
+        QLabel* secondaryInternal = nullptr;
         if (size.width == 760) {
-            QLabel* primaryInternal = internalNameLabel(
+            primaryInternal = internalNameLabel(
                 active, QString::fromLatin1("boiler_reset_primary"));
-            QLabel* secondaryInternal = internalNameLabel(
+            secondaryInternal = internalNameLabel(
                 active, QString::fromLatin1("boiler_reset_secondary"));
             QVERIFY(primaryInternal);
             QVERIFY(secondaryInternal);
@@ -1357,6 +1449,12 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
                                        "active action table");
         verifyRegionHasRenderedContent(image, clearRect, devicePixelRatio,
                                        "clear action table");
+        if (size.width == 760) {
+            verifyRenderedRegionsDiffer(
+                image, mappedContentsRect(primaryInternal, &widget),
+                mappedContentsRect(secondaryInternal, &widget),
+                devicePixelRatio);
+        }
         QTableWidget* actionTables[] = {active, clear};
         for (QTableWidget* actionTable : actionTables) {
             int sampledActionLabels = 0;

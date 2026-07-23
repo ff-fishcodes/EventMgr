@@ -897,15 +897,22 @@ Use `superpowers:finishing-a-development-branch` only after review and verificat
 - Duplicate same-phase actions are identified through the action cell property
   and the internal-name accessible role. At narrow width, their nonempty painted
   `displayText` values must differ while `accessibleName` remains each exact
-  backend key; `QLabel::text()` alone is not accepted as visible-paint evidence.
+  backend key. A targeted DPR-aware screenshot assertion also compares aligned
+  foreground masks from the two mapped label `contentsRect` regions, so neither
+  `QLabel::text()` nor the `displayText` property alone is accepted as
+  visible-paint evidence.
 - Screenshot evidence keeps broad table checks and adds DPR-aware luminance and
   edge sampling for mapped action-label `contentsRect` values and the separate
   refresh-button, apply-button, and status-text regions. The checks avoid exact
-  palette colors. A temporary blank `ElidedLabel::paintEvent()` mutation produced
-  14 targeted contrast failures, after which the production source was restored.
-- Scope is test quality plus this traceability record. No production defect or
-  production source change was retained, no dependency changed, and no remote
-  push was performed.
+  palette colors. Under `QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=1`, a
+  temporary blank `ElidedLabel::paintEvent()` mutation triggered multiple
+  targeted paint failures. A separate temporary literal-`X` paint mutation made
+  the duplicate-region glyph-mask assertion fail. Production source was restored
+  after both mutation checks.
+- Commit `c18b6eb` retains the production `ElidedLabel` implementation and its
+  responsive elision behavior. Commit `fc16c07` and this follow-up only harden
+  tests and update this traceability record; they do not retain another
+  production change, change a dependency, or push remotely.
 
 ### Verification evidence
 
@@ -924,6 +931,7 @@ replace target-platform qualification.
 | Frontend qmake product | Existing qmake build relinked successfully |
 | Backend demo product | README `g++ -std=c++11` plus Qt5Core command rebuilt successfully |
 
-Generated screenshots remain ignored build evidence. Existing class, call, and
-sequence diagrams continue to describe the unchanged production implementation;
-this follow-up introduces no new production class or call relationship.
+Generated screenshots remain ignored build evidence. Task 9 must update the
+current detailed design and architecture diagrams to include `ElidedLabel`, its
+class relationship, and its width-dependent visual behavior; the existing
+diagrams do not yet cover that retained `c18b6eb` production change.
