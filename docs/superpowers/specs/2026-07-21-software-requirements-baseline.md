@@ -10,7 +10,7 @@
 
 本次文档分层和历史保留规则见[需求文档按当前代码对齐设计](./2026-07-22-requirements-code-alignment-design.md)。
 
-- **CB-DOC-001**：本基线保存已经确认的需求结论及其源码证据链接，不承担讨论对话、方案比较或决策理由的过程记录。上述过程已由完成并审查的 [2026-07-21 文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md) 承载，当前交付与验证状态见该记录的[完成后状态与最终验证](./2026-07-21-documentation-discussion-record.md#11-2026-07-22-完成后状态与最终验证)。证据：`docs/superpowers/plans/2026-07-21-documentation-baseline.md`、`docs/superpowers/specs/2026-07-21-documentation-baseline-design.md`、`docs/superpowers/specs/2026-07-21-documentation-discussion-record.md`。
+- **CB-DOC-001**：本基线保存已经确认的需求结论及其源码证据链接，不承担讨论对话、方案比较或决策理由的过程记录。上述过程由 [2026-07-21 文档讨论与验证记录](./2026-07-21-documentation-discussion-record.md) 持续承载，当前交付与验证状态见该记录的[完成后状态与最终验证](./2026-07-21-documentation-discussion-record.md#11-2026-07-22-完成后状态与最终验证)。证据：`docs/superpowers/plans/2026-07-21-documentation-baseline.md`、`docs/superpowers/specs/2026-07-21-documentation-baseline-design.md`、`docs/superpowers/specs/2026-07-21-documentation-discussion-record.md`。
 - **CB-DOC-002**：每项基线要求使用唯一的 `CB-` 编号，第 9 章给出可判定的验收方法和具体证据路径。证据：本文第 4、5、6、7、9 章。
 - **CB-DOC-003**：本基线不承诺代码未体现的性能、可靠性或持久化能力，也不从局部加锁推导所有组件线程安全。证据：`backend/event_manager.cpp`、`backend/config_manager.cpp`、`backend/linkage_engine.cpp`。
 - **CB-DOC-004**：本文件是当前唯一有效的需求与验收基线。`doc/requirment.md`、2026-06-26 和 2026-07-06 需求规格保留为原始输入或历史版本；其中与当前代码不一致的接口、依赖、标识和行为不得用于当前开发或验收。证据：`doc/requirment.md`、`docs/superpowers/specs/2026-06-26-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-06-software-requirements-spec.md`、`docs/superpowers/specs/2026-07-22-requirements-code-alignment-design.md`。
@@ -107,7 +107,7 @@
 - **CB-FUN-039**：事件日志调用的文本格式为 `deviceName-description-发生/消除`；目录缺失与未知系统事件另写警告。事件日志调用是否到达受 **CB-LIM-008** 所述默认 UI 通知行为限制。证据：`backend/event_manager.cpp` 中 `writeLog()`、`backend/external_api.cpp`。
 - **CB-FUN-040**：通知 JSON 字段为 `type`、`deviceName`、`frameID`、`alarmField`、`description`、`level`；类型为 `alarm_active` 或 `alarm_cleared`，等级取 `effectiveLevel`。证据：`backend/event_manager.cpp` 中 `notifyFrontend()`。
 - **CB-FUN-041**：有通知回调时同步调用该回调，否则调用 `SocketServer` 桩；源码中产生通知位于发生日志之前，清除通知位于消除日志和活跃表删除之前。默认 UI 路径的实际结果由 **CB-LIM-008** 定义。证据：`backend/event_manager.cpp` 中 `processAddEvent()`、两个 `processClearEvent()`、`notifyFrontend()`。
-- **CB-FUN-042**：目录页为每个事件建立 `PendingEventConfig`，保存后端原始快照及操作者暂存值；切换目录行只保存当前控件值并渲染目标事件，不立即写后端。证据：`frontend/alarm_catalog_widget.h/.cpp`。
+- **CB-FUN-042**：目录页为每个事件建立 `PendingEventConfig`，保存后端原始快照及操作者暂存值；各开关变化时立即写入对应暂存值，切换目录行只改变选择并据此渲染目标事件，不写后端。证据：`frontend/alarm_catalog_widget.h/.cpp`。
 - **CB-FUN-043**：“应用配置”统一遍历所有脏事件，只提交降级、屏蔽及两侧动作的差异，完成后重新读取后端并恢复仍存在的选中事件。产生侧和消除侧的同名动作分别比较、分别写入。证据：`AlarmCatalogWidget::on_applyBtn_clicked()`、`applyActionDiffs()`。
 - **CB-FUN-044**：脏状态下刷新或离开目录页必须提供应用、放弃、取消三种决定；应用提交后继续，放弃重载后端后继续，取消保持暂存状态与选择且阻止离开。嵌套消息循环期间重复请求由 `dirtyPromptActive_` 拒绝。证据：`requestReload()`、`requestLeave()`、`EventMgrWidget::onTabChanged()`。
 - **CB-FUN-045**：动作名称区域同时显示用户名称和精确内部名；`ElidedLabel` 按当前 `contentsRect` 右侧省略绘制，完整值保留在 tooltip 与可访问属性中。证据：`frontend/alarm_catalog_widget.cpp`、`tests/test_alarm_catalog_widget.cpp`。
@@ -182,7 +182,7 @@
 | 联动调度与 fallback | CB-FUN-029, CB-FUN-030 | 核对线程池上限；分别用空、未知、禁用和正常动作验证 fallback | `backend/linkage_engine.cpp` |
 | 示例动作边界 | CB-FUN-031 | 检查注册表及控制桩，确认无真实设备实现 | `backend/action_registry.cpp`、`backend/stubs/cmd_sender.cpp`、`backend/stubs/buzzer_control.cpp` |
 | 动作禁用键 | CB-FUN-032, CB-LIM-010 | 比对精确拼接键和侧集合；构造含 `|` 的两组输入验证可碰撞 | `backend/linkage_engine.cpp` |
-| 动作查询与存储 | CB-FUN-033, CB-FUN-034, CB-FUN-046, CB-FUN-047, CB-FUN-048 | 用后端 Qt Test 核对默认优先稳定去重、产生/消除隔离、Info 空组、缺回调仍可查询、每事件/动作/阶段禁用及 `clearAll()` 清空 | `build-tests/linkage/test_linkage_engine`、`tests/test_linkage_engine.cpp` |
+| 动作查询与存储 | CB-FUN-033, CB-FUN-034, CB-FUN-046, CB-FUN-047, CB-FUN-048 | 用后端 Qt Test 核对默认优先稳定去重、产生/消除隔离、Info 空组、缺回调仍可查询及每事件/动作/阶段禁用；静态检查 `clearAll()` 的清空范围 | `build-tests/linkage/test_linkage_engine`、`tests/test_linkage_engine.cpp`、`backend/linkage_engine.cpp` |
 | 主界面展示 | CB-FUN-035 | 检查页签、字段、计数和四级颜色 | `frontend/eventmgr_widget.cpp`、`frontend/event_list_widget.cpp`、`frontend/event_list_widget.ui`、`frontend/alarm_catalog_widget.ui` |
 | 前端刷新 | CB-FUN-036 | 观察一秒定时器、事件信号和配置后的本地刷新路径 | `frontend/event_list_widget.cpp`、`frontend/eventmgr_widget.cpp` |
 | 配置目录与暂存应用 | CB-FUN-037, CB-FUN-042, CB-FUN-043, CB-FUN-044, CB-FUN-045, CB-LIM-011 | 用前端 Qt Test 核对全目录三类配置域、两阶段列表、跨事件暂存、差异应用、live membership best-effort、刷新/离开三决策、非事务边界和省略文本完整身份 | `build-tests/catalog/test_alarm_catalog_widget`、`tests/test_alarm_catalog_widget.cpp` |

@@ -553,9 +553,9 @@ sequenceDiagram
         alt originalLevel == Info
             LE-->>EM: 直接返回；无动作且无 fallback
         else 非 Info
-            LE->>LE: 配置 active 或 event.activeActions
-            LE->>LE: 追加 originalLevel 等级默认并过滤禁用
-            LE-->>Pool: start(ActionTask) 0..n
+            LE->>LE: 锁内先追加 originalLevel 产生默认，再追加配置 active 或 event.activeActions，稳定去重
+            LE->>LE: 解锁后再次锁定，按产生侧禁用状态快照 callback 句柄，再解锁
+            LE-->>Pool: 锁外 start(ActionTask) 0..n
             opt fallback_ 已设置
                 LE->>Fallback: fallback_(id, true)，调用线程同步
                 opt 当前 GUI 注入目标
@@ -626,8 +626,9 @@ sequenceDiagram
         alt originalLevel == Info
             LE-->>EM: 无动作且无 fallback
         else 非 Info
-            LE->>LE: 配置 clear 或 event.clearActions，过滤禁用
-            LE-->>Pool: start(ActionTask) 0..n
+            LE->>LE: 锁内先追加 originalLevel 消除默认，再追加配置 clear 或 event.clearActions，稳定去重
+            LE->>LE: 解锁后再次锁定，按消除侧禁用状态快照 callback 句柄，再解锁
+            LE-->>Pool: 锁外 start(ActionTask) 0..n
             opt fallback_ 已设置
                 LE->>Fallback: fallback_(id, false)，调用线程同步
                 opt 当前 GUI 注入目标
@@ -882,10 +883,13 @@ sequenceDiagram
             alt 已禁用或名称未注册
                 Note over LE: 静默跳过
             else 已注册且未禁用
-                LE-->>Pool: start(new ActionTask(callback))
+                LE->>LE: 保存 callback shared handle
             end
         end
         LE->>Mutex: unlock
+        loop 每个已快照 callback
+            LE-->>Pool: 锁外 start(new ActionTask(callback))
+        end
         opt fallback_ 已设置
             LE->>Fallback: 锁外 invoke(id, true)，在调用线程同步执行
         end
@@ -904,12 +908,15 @@ sequenceDiagram
         loop 每个动作名
             LE->>LE: isActionDisabled(id, name, false)
             alt 已注册且未禁用
-                LE-->>Pool: start(new ActionTask(callback))
+                LE->>LE: 保存 callback shared handle
             else 已禁用或未注册
                 Note over LE: 静默跳过
             end
         end
         LE->>Mutex: unlock
+        loop 每个已快照 callback
+            LE-->>Pool: 锁外 start(new ActionTask(callback))
+        end
         opt fallback_ 已设置
             LE->>Fallback: 锁外 invoke(id, false)，在调用线程同步执行
         end
