@@ -1,3 +1,5 @@
 /.worktrees/
 /.superpowers/
 /build-tests/
+/.vscode/
+/build-frontend-unknown-Debug/
