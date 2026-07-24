@@ -136,12 +136,12 @@ std::vector<AlarmDef> ExternalAPI::getAlarmCatalog() const {
     // 1. 设备报警定义（桩）
     std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();
 
-    // 2. 系统事件定义也纳入目录
+    // 2. 系统事件定义也纳入目录，ID 统一为 "系统-0-<事件名>"
     const std::vector<SystemEventDef>& sysDefs = getSystemEventDefs();
     for (std::vector<SystemEventDef>::const_iterator sit = sysDefs.begin();
          sit != sysDefs.end(); ++sit) {
         AlarmDef d;
-        d.id            = sit->name;
+        d.id            = "系统-0-" + sit->name;
         d.description   = sit->description;
         d.originalLevel = sit->level;
         defs.push_back(d);

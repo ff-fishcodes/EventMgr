@@ -185,20 +185,19 @@ void AlarmCatalogWidget::buildCatalogRows() {
     const QSignalBlocker blocker(ui.catalogTree);
     ui.catalogTree->clear();
 
-    // Group by device name: id with '-' -> first segment; bare name -> "系统"
+    // Group by device/module name (first segment of "名称-frameID-字段名")
     QMap<QString, QVector<int>> groups;
     for (int i = 0; i < catalog_.size(); ++i) {
-        const QString id = catalog_[i].id;
-        const QString deviceName = id.contains('-')
-            ? id.section('-', 0, 0) : QString::fromUtf8("系统");
+        const QString deviceName = catalog_[i].id.section('-', 0, 0);
         groups[deviceName].append(i);
     }
 
-    // Sort: device groups alphabetically first, "系统" last
+    // Sort: device groups alphabetically first, 系统 last
     QStringList sortedKeys = groups.keys();
     sortedKeys.sort();
-    if (sortedKeys.removeAll(QString::fromUtf8("系统")) > 0)
-        sortedKeys.append(QString::fromUtf8("系统"));
+    const QString systemKey = QString::fromUtf8("系统");
+    if (sortedKeys.removeAll(systemKey) > 0)
+        sortedKeys.append(systemKey);
 
     for (int gi = 0; gi < sortedKeys.size(); ++gi) {
         const QString& deviceName = sortedKeys[gi];
