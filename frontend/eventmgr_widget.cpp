@@ -48,9 +48,11 @@ void EventMgrWidget::setupUI() {
     // Tab 切换时自动刷新目标页面
     connect(tabs_, SIGNAL(currentChanged(int)), this, SLOT(onTabChanged(int)));
 
-    // 后端事件变化时即时刷新事件列表和屏蔽状态（不再等 1 秒定时器）
-    connect(bridge_, SIGNAL(eventsChanged()), eventListPage_, SLOT(refresh()));
-    connect(bridge_, SIGNAL(eventsChanged()), this, SLOT(updateShieldStatus()));
+    // 后端 500ms 批量推送：直接渲染事件列表 + 更新屏蔽状态
+    connect(bridge_, SIGNAL(eventsPushed(QVector<BackendBridge::EventEntry>)),
+            eventListPage_, SLOT(renderEvents(QVector<BackendBridge::EventEntry>)));
+    connect(bridge_, SIGNAL(eventsPushed(QVector<BackendBridge::EventEntry>)),
+            this, SLOT(updateShieldStatus()));
 
     statusTimer_ = new QTimer(this);
     connect(statusTimer_, SIGNAL(timeout()), this, SLOT(updateShieldStatus()));

@@ -4,7 +4,7 @@
 #include "stubs/socket_server.h"
 #include "stubs/log_writer.h"
 #include <sstream>
-#include <ctime>
+#include <QDateTime>
 #include <QMutexLocker>
 
 EventManager* EventManager::instance_ = NULL;
@@ -45,13 +45,8 @@ void EventManager::processAddEvent(const Event& event) {
     stored.effectiveLevel = configMgr_.getEffectiveLevel(event.id, event.originalLevel);
     stored.state = EventState::Active;
 
-    // 记录事件产生时间
-    {
-        std::time_t now = std::time(NULL);
-        char buf[20];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
-        stored.timestamp = buf;
-    }
+    stored.timestamp = QDateTime::currentDateTime()
+        .toString("yyyy-MM-dd HH:mm:ss.zzz").toStdString();
 
     activeEvents_[stored.id] = stored;
 

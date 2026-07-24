@@ -2,6 +2,7 @@
 #define BACKEND_BRIDGE_H
 
 #include <QObject>
+#include <QTimer>
 #include <QVector>
 #include <QString>
 #include "../backend/event_types.h"
@@ -81,7 +82,14 @@ public:
 
 signals:
     void eventsChanged();
+    void eventsPushed(QVector<BackendBridge::EventEntry> events);
     void linkageAction(const QString& eventId, bool isActive);
+
+private slots:
+    void pushEvents();
+
+private:
+    QTimer* pushTimer_;
 };
 
 #endif

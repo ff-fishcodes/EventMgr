@@ -25,10 +25,6 @@ EventListWidget::EventListWidget(BackendBridge* bridge, QWidget* parent)
     ui.setupUi(this);
     fillCombo();
     refresh();
-
-    refreshTimer_ = new QTimer(this);
-    connect(refreshTimer_, SIGNAL(timeout()), this, SLOT(refresh()));
-    refreshTimer_->start(1000);
 }
 
 void EventListWidget::fillCombo() {
@@ -48,9 +44,11 @@ void EventListWidget::on_simBtn_clicked() {
 }
 
 void EventListWidget::refresh() {
-    ui.eventTable->setRowCount(0);
+    renderEvents(bridge_->getActiveEvents());
+}
 
-    QVector<BackendBridge::EventEntry> events = bridge_->getActiveEvents();
+void EventListWidget::renderEvents(QVector<BackendBridge::EventEntry> events) {
+    ui.eventTable->setRowCount(0);
 
     for (int i = 0; i < events.size(); ++i) {
         const BackendBridge::EventEntry& e = events[i];

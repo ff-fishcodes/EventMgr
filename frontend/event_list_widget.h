@@ -2,7 +2,6 @@
 #define EVENT_LIST_WIDGET_H
 
 #include <QWidget>
-#include <QTimer>
 #include "backend_bridge.h"
 
 // UI 生成的头文件（qmake 自动从 .ui 生成）
@@ -15,6 +14,7 @@ public:
 
 public slots:
     void refresh();
+    void renderEvents(QVector<BackendBridge::EventEntry> events);
 
 private slots:
     void on_simBtn_clicked();
@@ -24,7 +24,6 @@ private:
 
     Ui::EventListWidget ui;
     BackendBridge* bridge_;
-    QTimer*        refreshTimer_;
 };
 
 #endif

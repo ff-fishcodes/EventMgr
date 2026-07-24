@@ -31,7 +31,7 @@ void BackendBridge::initialize() {
     // 一键启动后端模块（若已由 EventMgrModule::init() 启动则跳过）
     EventMgrModule::init();
 
-    // 一体模式：注入前端通知回调
+    // 一体模式：注入前端通知回调（即时推送单条事件）
     EventManager::instance().setNotifyCallback([this](const std::string&) {
         emit eventsChanged();
     });
@@ -41,6 +41,28 @@ void BackendBridge::initialize() {
         [this](const std::string& eventId, bool isActive) {
             emit linkageAction(QString::fromStdString(eventId), isActive);
         });
+
+    // 500ms 定时推送全量活跃事件
+    pushTimer_ = new QTimer(this);
+    connect(pushTimer_, SIGNAL(timeout()), this, SLOT(pushEvents()));
+    pushTimer_->start(500);
+}
+
+void BackendBridge::pushEvents() {
+    QVector<EventEntry> result;
+    std::vector<Event> events = ExternalAPI::instance().getActiveEvents();
+    for (std::vector<Event>::const_iterator it = events.begin();
+         it != events.end(); ++it) {
+        EventEntry e;
+        e.id          = QString::fromStdString(it->id);
+        e.description = QString::fromStdString(it->description);
+        e.timestamp   = QString::fromStdString(it->timestamp);
+        e.level       = static_cast<int>(it->effectiveLevel);
+        e.downgraded  = ConfigManager::instance().hasDowngrade(it->id);
+        e.shielded    = ConfigManager::instance().isShielded(it->id);
+        result.append(e);
+    }
+    emit eventsPushed(result);
 }
 
 void BackendBridge::triggerAlarm(const QString& id, bool isActive) {
