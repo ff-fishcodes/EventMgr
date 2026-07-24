@@ -35,13 +35,35 @@ void ActionRegistry::setup() {
         BuzzerControl::play("alert", "");
     });
 
+    api.registerAction("log_error", "记录错误日志", []() {
+        std::cout << "[System] 错误已写入日志" << std::endl;
+    });
+
+    api.registerAction("sys_notify", "系统通知", []() {
+        std::cout << "[System] 推送通知到运维终端" << std::endl;
+    });
+
     // ============================================================
     // 事件联动配置：事件 → 能力列表
     // ============================================================
 
-    api.configureEvent("锅炉-3-temp_high", {"cooler_fan"}, {});
-    api.configureEvent("冷却塔-1-vibration", {"cooler_stop"}, {});
-    api.configureEvent("水泵-0-device_offline", {}, {});
+    // -- 设备事件 --
+    api.configureEvent("锅炉-3-temp_high", {"cooler_fan", "buzzer_alert"}, {});
+    api.configureEvent("锅炉-3-pressure_low", {"boiler_reduce"}, {});
+    api.configureEvent("锅炉-5-overload", {"boiler_stop", "buzzer_alert"}, {});
+    api.configureEvent("冷却塔-1-vibration", {"cooler_stop", "buzzer_alert"}, {});
+    api.configureEvent("冷却塔-1-water_level", {"cooler_fan"}, {});
+    api.configureEvent("电网-2-voltage_high", {"buzzer_alert"}, {});
+    api.configureEvent("电网-2-current_high", {"buzzer_alert"}, {});
+    api.configureEvent("水泵-0-device_offline", {"buzzer_alert"}, {});
+
+    // -- 系统事件 --
+    api.configureEvent("系统-0-comm_lost",    {"buzzer_alert", "sys_notify"}, {});
+    api.configureEvent("系统-0-disk_full",    {"buzzer_alert", "log_error"},  {});
+    api.configureEvent("系统-0-cpu_overload", {"buzzer_alert", "sys_notify"}, {});
+    api.configureEvent("电源-0-power_fail",   {"buzzer_alert", "boiler_stop", "log_error"}, {});
+    api.configureEvent("网络-0-network_down", {"buzzer_alert", "sys_notify"}, {});
+    api.configureEvent("存储-0-disk_io_error",{"log_error", "sys_notify"}, {});
 
     // 等级默认：所有 Emergency 事件产生阶段停冷却塔，消除阶段无默认动作
     api.setLevelDefault(EventLevel::Emergency,
@@ -62,8 +84,12 @@ void ActionRegistry::setup() {
     api.registerAlarmDef("水泵",   0, "device_offline", "水泵-通信中断", EventLevel::Serious);
 
     // -- 系统事件 --
-    api.registerAlarmDef("系统", 0, "comm_lost",    "通信断连", EventLevel::Emergency, true);
-    api.registerAlarmDef("系统", 0, "comm_restore", "通信恢复", EventLevel::Info, true);
+    api.registerAlarmDef("系统", 0, "comm_lost",    "通信断连",     EventLevel::Emergency, true);
+    api.registerAlarmDef("系统", 0, "comm_restore", "通信恢复",     EventLevel::Info, true);
     api.registerAlarmDef("系统", 0, "disk_full",    "磁盘空间不足", EventLevel::Serious, true);
-    api.registerAlarmDef("系统", 0, "cpu_overload", "CPU 过载", EventLevel::Serious, true);
+    api.registerAlarmDef("系统", 0, "cpu_overload", "CPU 过载",     EventLevel::Serious, true);
+    api.registerAlarmDef("电源", 0, "power_fail",   "电源故障",     EventLevel::Emergency, true);
+    api.registerAlarmDef("网络", 0, "network_down", "网络中断",     EventLevel::Emergency, true);
+    api.registerAlarmDef("存储", 0, "disk_io_error","磁盘IO错误",   EventLevel::Emergency, true);
+    api.registerAlarmDef("存储", 0, "disk_slow",    "磁盘响应慢",   EventLevel::Serious, true);
 }
