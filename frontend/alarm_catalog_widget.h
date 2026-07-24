@@ -6,6 +6,8 @@
 #include <QVector>
 #include <QWidget>
 
+class QTreeWidgetItem;
+
 #include "backend_bridge.h"
 #include "ui_alarm_catalog_widget.h"
 
@@ -51,7 +53,7 @@ private:
     void reloadFromBackend();
     void buildCatalogRows();
     void selectInitialEvent();
-    void switchSelectedEvent(int currentRow);
+    void switchSelectedEvent(QTreeWidgetItem* current, QTreeWidgetItem* previous);
     void renderSelectedActions();
     void renderActionTable(QTableWidget* table,
                            const QVector<BackendBridge::ActionEntry>& orderedActions,

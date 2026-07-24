@@ -63,7 +63,7 @@
         <number>0</number>
        </property>
        <item>
-        <widget class="QTableWidget" name="catalogTable">
+        <widget class="QTreeWidget" name="catalogTree">
          <property name="editTriggers">
           <set>QAbstractItemView::NoEditTriggers</set>
          </property>
@@ -79,14 +79,14 @@
          <property name="alternatingRowColors">
           <bool>true</bool>
          </property>
-         <property name="showGrid">
-          <bool>false</bool>
+         <property name="rootIsDecorated">
+          <bool>true</bool>
          </property>
-         <attribute name="horizontalHeaderStretchLastSection">
+         <attribute name="headerStretchLastSection">
           <bool>false</bool>
          </attribute>
-         <attribute name="verticalHeaderVisible">
-          <bool>false</bool>
+         <attribute name="headerVisible">
+          <bool>true</bool>
          </attribute>
          <column>
           <property name="text">

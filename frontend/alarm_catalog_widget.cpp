@@ -9,6 +9,7 @@
 #include <QResizeEvent>
 #include <QSignalBlocker>
 #include <QTableWidgetItem>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
 namespace {
@@ -103,9 +104,9 @@ AlarmCatalogWidget::AlarmCatalogWidget(BackendBridge* bridge, QWidget* parent)
     splitterSizes << 620 << 380;
     ui.configSplitter->setSizes(splitterSizes);
 
-    ui.catalogTable->horizontalHeader()->setSectionResizeMode(
+    ui.catalogTree->header()->setSectionResizeMode(
         QHeaderView::ResizeToContents);
-    ui.catalogTable->horizontalHeader()->setSectionResizeMode(
+    ui.catalogTree->header()->setSectionResizeMode(
         1, QHeaderView::Stretch);
     ui.activeActionTable->horizontalHeader()->setSectionResizeMode(
         0, QHeaderView::Stretch);
@@ -118,7 +119,7 @@ AlarmCatalogWidget::AlarmCatalogWidget(BackendBridge* bridge, QWidget* parent)
 
     connect(ui.refreshBtn, &QPushButton::clicked,
             this, &AlarmCatalogWidget::requestReload);
-    connect(ui.catalogTable, &QTableWidget::currentCellChanged,
+    connect(ui.catalogTree, &QTreeWidget::currentItemChanged,
             this, &AlarmCatalogWidget::switchSelectedEvent);
     loadCatalog();
 }
@@ -181,101 +182,139 @@ void AlarmCatalogWidget::reloadFromBackend() {
 }
 
 void AlarmCatalogWidget::buildCatalogRows() {
-    const QSignalBlocker blocker(ui.catalogTable);
-    ui.catalogTable->clearContents();
-    ui.catalogTable->setRowCount(catalog_.size());
+    const QSignalBlocker blocker(ui.catalogTree);
+    ui.catalogTree->clear();
 
-    for (int row = 0; row < catalog_.size(); ++row) {
-        const BackendBridge::CatalogEntry& entry = catalog_[row];
-        const PendingEventConfig& pending = pendingByEvent_[entry.id];
-        QTableWidgetItem* idItem = new QTableWidgetItem(entry.id);
-        idItem->setForeground(QColor(38, 50, 56));
-        ui.catalogTable->setItem(row, 0, idItem);
-        ui.catalogTable->setItem(row, 1,
-                                 new QTableWidgetItem(entry.description));
+    // Group by device name (first segment of event id)
+    QMap<QString, QVector<int>> groups;  // deviceName -> indices into catalog_
+    for (int i = 0; i < catalog_.size(); ++i) {
+        const QString id = catalog_[i].id;
+        const QString deviceName = id.section('-', 0, 0);
+        groups[deviceName].append(i);
+    }
 
-        QString levelText;
-        QColor levelColor;
-        switch (entry.originalLevel) {
-            case 1:
-                levelText = QString::fromUtf8("紧急");
-                levelColor = QColor(183, 28, 28);
-                break;
-            case 2:
-                levelText = QString::fromUtf8("严重");
-                levelColor = QColor(230, 81, 0);
-                break;
-            case 3:
-                levelText = QString::fromUtf8("一般");
-                levelColor = QColor(130, 119, 23);
-                break;
-            default:
-                levelText = QString::fromUtf8("提示");
-                levelColor = QColor(2, 119, 189);
-                break;
-        }
-        QTableWidgetItem* levelItem = new QTableWidgetItem(levelText);
-        levelItem->setForeground(levelColor);
-        ui.catalogTable->setItem(row, 2, levelItem);
+    QMap<QString, QVector<int>>::const_iterator git = groups.constBegin();
+    for (; git != groups.constEnd(); ++git) {
+        const QString& deviceName = git.key();
+        const QVector<int>& indices = git.value();
 
-        QCheckBox* downgradeCheckBox = new QCheckBox(ui.catalogTable);
-        downgradeCheckBox->setChecked(pending.downgraded);
-        downgradeCheckBox->setProperty("eventId", entry.id);
-        connect(downgradeCheckBox, &QCheckBox::toggled,
-                this, [this, entry](bool checked) {
-            if (loadingUi_) return;
-            pendingByEvent_[entry.id].downgraded = checked;
-            updateDirtyUi();
-        });
-        ui.catalogTable->setCellWidget(row, 3, downgradeCheckBox);
+        QTreeWidgetItem* parent = new QTreeWidgetItem(ui.catalogTree);
+        parent->setText(0, deviceName);
+        parent->setText(1, QString("(%1 个报警)").arg(indices.size()));
+        QFont boldFont = parent->font(0);
+        boldFont.setBold(true);
+        parent->setFont(0, boldFont);
+        parent->setFlags(parent->flags() & ~Qt::ItemIsSelectable);
 
-        QCheckBox* shieldCheckBox = new QCheckBox(ui.catalogTable);
-        shieldCheckBox->setChecked(pending.shielded);
-        shieldCheckBox->setProperty("eventId", entry.id);
-        connect(shieldCheckBox, &QCheckBox::toggled,
-                this, [this, entry](bool checked) {
-            if (loadingUi_) return;
-            pendingByEvent_[entry.id].shielded = checked;
-            updateDirtyUi();
-        });
-        ui.catalogTable->setCellWidget(row, 4, shieldCheckBox);
+        for (int i = 0; i < indices.size(); ++i) {
+            int row = indices[i];
+            const BackendBridge::CatalogEntry& entry = catalog_[row];
+            const PendingEventConfig& pending = pendingByEvent_[entry.id];
 
-        const BackendBridge::EventActionGroups* groups =
-            actionGroupsForEvent(entry.id);
-        const int actionCount = groups
-            ? groups->activeActions.size() + groups->clearActions.size() : 0;
-        QTableWidgetItem* countItem =
-            new QTableWidgetItem(actionCount == 0
+            QTreeWidgetItem* child = new QTreeWidgetItem(parent);
+            child->setData(0, Qt::UserRole, entry.id);
+            child->setText(0, entry.id);
+            child->setForeground(0, QColor(38, 50, 56));
+            child->setText(1, entry.description);
+
+            QString levelText;
+            QColor levelColor;
+            switch (entry.originalLevel) {
+                case 1:
+                    levelText = QString::fromUtf8("紧急");
+                    levelColor = QColor(183, 28, 28);
+                    break;
+                case 2:
+                    levelText = QString::fromUtf8("严重");
+                    levelColor = QColor(230, 81, 0);
+                    break;
+                case 3:
+                    levelText = QString::fromUtf8("一般");
+                    levelColor = QColor(130, 119, 23);
+                    break;
+                default:
+                    levelText = QString::fromUtf8("提示");
+                    levelColor = QColor(2, 119, 189);
+                    break;
+            }
+            child->setText(2, levelText);
+            child->setForeground(2, levelColor);
+
+            QCheckBox* downgradeCheckBox = new QCheckBox(ui.catalogTree);
+            downgradeCheckBox->setChecked(pending.downgraded);
+            downgradeCheckBox->setProperty("eventId", entry.id);
+            connect(downgradeCheckBox, &QCheckBox::toggled,
+                    this, [this, entry](bool checked) {
+                if (loadingUi_) return;
+                pendingByEvent_[entry.id].downgraded = checked;
+                updateDirtyUi();
+            });
+            ui.catalogTree->setItemWidget(child, 3, downgradeCheckBox);
+
+            QCheckBox* shieldCheckBox = new QCheckBox(ui.catalogTree);
+            shieldCheckBox->setChecked(pending.shielded);
+            shieldCheckBox->setProperty("eventId", entry.id);
+            connect(shieldCheckBox, &QCheckBox::toggled,
+                    this, [this, entry](bool checked) {
+                if (loadingUi_) return;
+                pendingByEvent_[entry.id].shielded = checked;
+                updateDirtyUi();
+            });
+            ui.catalogTree->setItemWidget(child, 4, shieldCheckBox);
+
+            const BackendBridge::EventActionGroups* groups =
+                actionGroupsForEvent(entry.id);
+            const int actionCount = groups
+                ? groups->activeActions.size() + groups->clearActions.size() : 0;
+            QTableWidgetItem* countItem =
+                new QTableWidgetItem(actionCount == 0
+                    ? QString::fromUtf8("无") : QString::number(actionCount));
+            countItem->setTextAlignment(Qt::AlignCenter);
+            child->setText(5, actionCount == 0
                 ? QString::fromUtf8("无") : QString::number(actionCount));
-        countItem->setTextAlignment(Qt::AlignCenter);
-        ui.catalogTable->setItem(row, 5, countItem);
+        }
+
+        parent->setExpanded(true);
     }
 }
 
 void AlarmCatalogWidget::selectInitialEvent() {
-    int selectedRow = -1;
-    for (int row = 0; row < catalog_.size(); ++row) {
-        if (catalog_[row].id == selectedEventId_) {
-            selectedRow = row;
-            break;
+    QTreeWidgetItem* found = nullptr;
+    for (int p = 0; p < ui.catalogTree->topLevelItemCount(); ++p) {
+        QTreeWidgetItem* parent = ui.catalogTree->topLevelItem(p);
+        for (int c = 0; c < parent->childCount(); ++c) {
+            QTreeWidgetItem* child = parent->child(c);
+            if (child->data(0, Qt::UserRole).toString() == selectedEventId_) {
+                found = child;
+                break;
+            }
         }
+        if (found) break;
     }
-    if (selectedRow < 0 && !catalog_.isEmpty()) selectedRow = 0;
+    if (!found && ui.catalogTree->topLevelItemCount() > 0) {
+        QTreeWidgetItem* firstParent = ui.catalogTree->topLevelItem(0);
+        if (firstParent->childCount() > 0)
+            found = firstParent->child(0);
+    }
 
-    if (selectedRow >= 0) {
-        selectedEventId_ = catalog_[selectedRow].id;
-        ui.catalogTable->setCurrentCell(selectedRow, 0);
-        ui.catalogTable->selectRow(selectedRow);
+    if (found) {
+        selectedEventId_ = found->data(0, Qt::UserRole).toString();
+        ui.catalogTree->setCurrentItem(found);
+        found->parent()->setExpanded(true);
     } else {
         selectedEventId_.clear();
     }
     ui.selectedEventLabel->setText(selectedEventId_);
 }
 
-void AlarmCatalogWidget::switchSelectedEvent(int currentRow) {
-    if (loadingUi_ || currentRow < 0 || currentRow >= catalog_.size()) return;
+void AlarmCatalogWidget::switchSelectedEvent(QTreeWidgetItem* current,
+                                              QTreeWidgetItem* previous) {
+    Q_UNUSED(previous);
+    if (loadingUi_ || !current) return;
+    // Ignore parent (group) items
+    if (!current->parent()) return;
 
-    selectedEventId_ = catalog_[currentRow].id;
+    selectedEventId_ = current->data(0, Qt::UserRole).toString();
     ui.selectedEventLabel->setText(selectedEventId_);
     renderSelectedActions();
 }
