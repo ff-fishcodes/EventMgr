@@ -185,18 +185,24 @@ void AlarmCatalogWidget::buildCatalogRows() {
     const QSignalBlocker blocker(ui.catalogTree);
     ui.catalogTree->clear();
 
-    // Group by device name (first segment of event id)
-    QMap<QString, QVector<int>> groups;  // deviceName -> indices into catalog_
+    // Group by device name: id with '-' -> first segment; bare name -> "系统"
+    QMap<QString, QVector<int>> groups;
     for (int i = 0; i < catalog_.size(); ++i) {
         const QString id = catalog_[i].id;
-        const QString deviceName = id.section('-', 0, 0);
+        const QString deviceName = id.contains('-')
+            ? id.section('-', 0, 0) : QString::fromUtf8("系统");
         groups[deviceName].append(i);
     }
 
-    QMap<QString, QVector<int>>::const_iterator git = groups.constBegin();
-    for (; git != groups.constEnd(); ++git) {
-        const QString& deviceName = git.key();
-        const QVector<int>& indices = git.value();
+    // Sort: device groups alphabetically first, "系统" last
+    QStringList sortedKeys = groups.keys();
+    sortedKeys.sort();
+    if (sortedKeys.removeAll(QString::fromUtf8("系统")) > 0)
+        sortedKeys.append(QString::fromUtf8("系统"));
+
+    for (int gi = 0; gi < sortedKeys.size(); ++gi) {
+        const QString& deviceName = sortedKeys[gi];
+        const QVector<int>& indices = groups[deviceName];
 
         QTreeWidgetItem* parent = new QTreeWidgetItem(ui.catalogTree);
         parent->setText(0, deviceName);
