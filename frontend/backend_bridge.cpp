@@ -102,6 +102,7 @@ QVector<BackendBridge::CatalogEntry> BackendBridge::getCatalog() const {
         e.downgraded     = it->downgraded;
         e.downgradeTo    = static_cast<int>(it->downgradeTo);
         e.shielded       = it->shielded;
+        e.isSystem       = it->isSystem;
         result.append(e);
     }
     return result;

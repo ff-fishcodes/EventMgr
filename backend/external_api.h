@@ -47,9 +47,9 @@ public:
 
     // ========= 系统事件定义（启动阶段配置）=========
 
-    // 注册一条系统事件定义，供 triggerAlarm 按 alarmField 查等级+描述
-    void addSystemEventDef(const std::string& name, const std::string& description,
-                           EventLevel level);
+    // 注册一条系统事件定义，供 triggerAlarm 按模块名+alarmField 查等级+描述
+    void addSystemEventDef(const std::string& moduleName, const std::string& name,
+                           const std::string& description, EventLevel level);
 
     // ========= 联动配置门面（业务代码不直接依赖 LinkageEngine）=========
 

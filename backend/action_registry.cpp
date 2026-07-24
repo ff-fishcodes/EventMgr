@@ -51,8 +51,8 @@ void ActionRegistry::setup() {
     // 系统事件定义登记（外部可配置）
     // ============================================================
 
-    api.addSystemEventDef("comm_lost",    "通信断连", EventLevel::Emergency);
-    api.addSystemEventDef("comm_restore", "通信恢复", EventLevel::Info);
-    api.addSystemEventDef("disk_full",    "磁盘空间不足", EventLevel::Serious);
-    api.addSystemEventDef("cpu_overload", "CPU 过载", EventLevel::Serious);
+    api.addSystemEventDef("系统", "comm_lost",    "通信断连", EventLevel::Emergency);
+    api.addSystemEventDef("系统", "comm_restore", "通信恢复", EventLevel::Info);
+    api.addSystemEventDef("系统", "disk_full",    "磁盘空间不足", EventLevel::Serious);
+    api.addSystemEventDef("系统", "cpu_overload", "CPU 过载", EventLevel::Serious);
 }

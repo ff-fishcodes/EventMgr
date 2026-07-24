@@ -42,6 +42,7 @@ public:
         bool    downgraded;
         int     downgradeTo;
         bool    shielded;
+        bool    isSystem;
     };
     QVector<CatalogEntry> getCatalog() const;
 

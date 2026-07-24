@@ -6,28 +6,29 @@
 // ============================================================
 static std::vector<SystemEventDef> g_systemEvents;
 
-void addSystemEventDef(const std::string& name, const std::string& description,
-                       EventLevel level) {
-    // 同名覆盖，避免重复
+void addSystemEventDef(const std::string& moduleName, const std::string& name,
+                       const std::string& description, EventLevel level) {
+    // 同模块+同名覆盖，避免重复
     for (std::vector<SystemEventDef>::iterator it = g_systemEvents.begin();
          it != g_systemEvents.end(); ++it) {
-        if (it->name == name) {
+        if (it->moduleName == moduleName && it->name == name) {
             it->description = description;
             it->level = level;
             return;
         }
     }
-    g_systemEvents.push_back(SystemEventDef(name, description, level));
+    g_systemEvents.push_back(SystemEventDef(moduleName, name, description, level));
 }
 
 const std::vector<SystemEventDef>& getSystemEventDefs() {
     return g_systemEvents;
 }
 
-const SystemEventDef* findSystemEventDef(const std::string& name) {
+const SystemEventDef* findSystemEventDef(const std::string& moduleName,
+                                          const std::string& name) {
     for (std::vector<SystemEventDef>::const_iterator it = g_systemEvents.begin();
          it != g_systemEvents.end(); ++it) {
-        if (it->name == name) {
+        if (it->moduleName == moduleName && it->name == name) {
             return &(*it);
         }
     }

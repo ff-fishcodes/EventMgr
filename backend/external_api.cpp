@@ -60,8 +60,8 @@ void ExternalAPI::triggerAlarm(const std::string& deviceName, int frameID,
         }
     }
 
-    // 2. 查系统事件定义（按 alarmField 名）
-    const SystemEventDef* sysDef = findSystemEventDef(alarmField);
+    // 2. 查系统事件定义（按 deviceName=模块名 + alarmField）
+    const SystemEventDef* sysDef = findSystemEventDef(deviceName, alarmField);
     if (sysDef) {
         Event event = createAlarm(deviceName, frameID, alarmField,
                                   sysDef->level, deviceName + "-" + sysDef->description);
@@ -84,10 +84,11 @@ void ExternalAPI::addEvent(const Event& event) {
     eventMgr_.processAddEvent(event);
 }
 
-void ExternalAPI::addSystemEventDef(const std::string& name,
+void ExternalAPI::addSystemEventDef(const std::string& moduleName,
+                                     const std::string& name,
                                      const std::string& description,
                                      EventLevel level) {
-    ::addSystemEventDef(name, description, level);
+    ::addSystemEventDef(moduleName, name, description, level);
 }
 
 void ExternalAPI::registerAction(const std::string& name,
@@ -141,8 +142,9 @@ std::vector<AlarmDef> ExternalAPI::getAlarmCatalog() const {
     for (std::vector<SystemEventDef>::const_iterator sit = sysDefs.begin();
          sit != sysDefs.end(); ++sit) {
         AlarmDef d;
-        d.id            = "系统-0-" + sit->name;
+        d.id = sit->moduleName + "-0-" + sit->name;
         d.description   = sit->description;
+        d.isSystem      = true;
         d.originalLevel = sit->level;
         defs.push_back(d);
     }

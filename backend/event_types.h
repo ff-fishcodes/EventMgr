@@ -51,10 +51,11 @@ struct AlarmDef {
     bool        downgraded;       // 是否已降级
     EventLevel  downgradeTo;      // 降级到哪个等级（仅 downgraded=true 时有效）
     bool        shielded;         // 是否已屏蔽
+    bool        isSystem;         // 是否为系统事件（前端分组排序用）
 
     AlarmDef() : originalLevel(EventLevel::Info),
                  downgraded(false), downgradeTo(EventLevel::Info),
-                 shielded(false) {}
+                 shielded(false), isSystem(false) {}
 };
 
 // ============================================================
@@ -62,13 +63,15 @@ struct AlarmDef {
 // 业务代码只能使用此列表中已定义的事件名
 // ============================================================
 struct SystemEventDef {
+    std::string moduleName;   // 所属系统模块名，如 "硬盘故障"
     std::string name;          // 事件名，如 "comm_lost"
     std::string description;   // 描述，如 "下位机通信断连"
     EventLevel  level;         // 严重等级
 
     SystemEventDef() : level(EventLevel::Info) {}
-    SystemEventDef(const std::string& n, const std::string& d, EventLevel l)
-        : name(n), description(d), level(l) {}
+    SystemEventDef(const std::string& m, const std::string& n,
+                   const std::string& d, EventLevel l)
+        : moduleName(m), name(n), description(d), level(l) {}
 };
 
 // ============================================================

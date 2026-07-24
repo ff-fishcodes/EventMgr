@@ -16,14 +16,15 @@
 // ============================================================
 
 // 注册一条系统事件定义（启动阶段调用）
-void addSystemEventDef(const std::string& name, const std::string& description,
-                       EventLevel level);
+void addSystemEventDef(const std::string& moduleName, const std::string& name,
+                       const std::string& description, EventLevel level);
 
 // 获取当前已注册的系统事件定义列表
 const std::vector<SystemEventDef>& getSystemEventDefs();
 
-// 按名称查找系统事件定义，未找到时返回 NULL
-const SystemEventDef* findSystemEventDef(const std::string& name);
+// 按模块名+事件名查找系统事件定义，未找到时返回 NULL
+const SystemEventDef* findSystemEventDef(const std::string& moduleName,
+                                          const std::string& name);
 
 // 清空所有系统事件定义（测试/重启用）
 void clearSystemEventDefs();
