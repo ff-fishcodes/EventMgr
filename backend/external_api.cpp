@@ -70,14 +70,16 @@ void ExternalAPI::triggerAlarm(const std::string& deviceName, int frameID,
         return;
     }
 
-    // 3. 都找不到 → 用调用方传入的 fallbackLevel，描述用字段名，记日志
+    // 3. 都找不到 → 用调用方传入的 fallbackLevel，标记 Unknown，记日志
     {
         std::ostringstream warn;
         warn << "事件未在目录/系统事件中定义: " << targetId
              << "，使用等级=" << static_cast<int>(fallbackLevel);
         LogWriter::write(warn.str());
     }
-    addEvent(createAlarm(deviceName, frameID, alarmField, fallbackLevel, alarmField));
+    Event fallback = createAlarm(deviceName, frameID, alarmField, fallbackLevel, alarmField);
+    fallback.source = EventSource::Unknown;
+    addEvent(fallback);
 }
 
 void ExternalAPI::addEvent(const Event& event) {
