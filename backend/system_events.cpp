@@ -1,34 +1,48 @@
 #include "system_events.h"
+#include <sstream>
 
 // ============================================================
 // 系统事件定义表（外部可配置）
 // 初始为空，由业务代码通过 addSystemEventDef 注册
+// 内部直接存储 AlarmDef，isSystem=true，id="模块名-0-事件名"
 // ============================================================
-static std::vector<SystemEventDef> g_systemEvents;
+static std::vector<AlarmDef> g_systemEvents;
 
 void addSystemEventDef(const std::string& moduleName, const std::string& name,
                        const std::string& description, EventLevel level) {
-    // 同模块+同名覆盖，避免重复
-    for (std::vector<SystemEventDef>::iterator it = g_systemEvents.begin();
+    std::ostringstream idStr;
+    idStr << moduleName << "-0-" << name;
+
+    // 同模块+同名覆盖
+    for (std::vector<AlarmDef>::iterator it = g_systemEvents.begin();
          it != g_systemEvents.end(); ++it) {
-        if (it->moduleName == moduleName && it->name == name) {
-            it->description = description;
-            it->level = level;
+        if (it->id == idStr.str()) {
+            it->description    = description;
+            it->originalLevel  = level;
             return;
         }
     }
-    g_systemEvents.push_back(SystemEventDef(moduleName, name, description, level));
+    AlarmDef d;
+    d.id            = idStr.str();
+    d.description   = description;
+    d.originalLevel = level;
+    d.isSystem      = true;
+    g_systemEvents.push_back(d);
 }
 
-const std::vector<SystemEventDef>& getSystemEventDefs() {
+const std::vector<AlarmDef>& getSystemEventDefs() {
     return g_systemEvents;
 }
 
-const SystemEventDef* findSystemEventDef(const std::string& moduleName,
-                                          const std::string& name) {
-    for (std::vector<SystemEventDef>::const_iterator it = g_systemEvents.begin();
+const AlarmDef* findSystemEventDef(const std::string& moduleName,
+                                    const std::string& name) {
+    std::ostringstream idStr;
+    idStr << moduleName << "-0-" << name;
+    std::string targetId = idStr.str();
+
+    for (std::vector<AlarmDef>::const_iterator it = g_systemEvents.begin();
          it != g_systemEvents.end(); ++it) {
-        if (it->moduleName == moduleName && it->name == name) {
+        if (it->id == targetId) {
             return &(*it);
         }
     }

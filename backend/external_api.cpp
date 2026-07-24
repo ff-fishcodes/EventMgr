@@ -61,10 +61,10 @@ void ExternalAPI::triggerAlarm(const std::string& deviceName, int frameID,
     }
 
     // 2. 查系统事件定义（按 deviceName=模块名 + alarmField）
-    const SystemEventDef* sysDef = findSystemEventDef(deviceName, alarmField);
+    const AlarmDef* sysDef = findSystemEventDef(deviceName, alarmField);
     if (sysDef) {
         Event event = createAlarm(deviceName, frameID, alarmField,
-                                  sysDef->level, deviceName + "-" + sysDef->description);
+                                  sysDef->originalLevel, deviceName + "-" + sysDef->description);
         event.source = EventSource::System;
         addEvent(event);
         return;
@@ -139,17 +139,9 @@ std::vector<AlarmDef> ExternalAPI::getAlarmCatalog() const {
     // 1. 设备报警定义（桩）
     std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();
 
-    // 2. 系统事件定义也纳入目录，ID 统一为 "系统-0-<事件名>"
-    const std::vector<SystemEventDef>& sysDefs = getSystemEventDefs();
-    for (std::vector<SystemEventDef>::const_iterator sit = sysDefs.begin();
-         sit != sysDefs.end(); ++sit) {
-        AlarmDef d;
-        d.id = sit->moduleName + "-0-" + sit->name;
-        d.description   = sit->description;
-        d.isSystem      = true;
-        d.originalLevel = sit->level;
-        defs.push_back(d);
-    }
+    // 2. 系统事件定义（已是 AlarmDef，直接合并）
+    const std::vector<AlarmDef>& sysDefs = getSystemEventDefs();
+    defs.insert(defs.end(), sysDefs.begin(), sysDefs.end());
 
     // 3. 合并 ConfigManager 当前的降级/屏蔽状态
     for (std::vector<AlarmDef>::iterator it = defs.begin();

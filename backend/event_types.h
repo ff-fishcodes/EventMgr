@@ -60,22 +60,6 @@ struct AlarmDef {
 };
 
 // ============================================================
-// 系统事件定义 — 后端自行监测的事件，集中预定义
-// 业务代码只能使用此列表中已定义的事件名
-// ============================================================
-struct SystemEventDef {
-    std::string moduleName;   // 所属系统模块名，如 "硬盘故障"
-    std::string name;          // 事件名，如 "comm_lost"
-    std::string description;   // 描述，如 "下位机通信断连"
-    EventLevel  level;         // 严重等级
-
-    SystemEventDef() : level(EventLevel::Info) {}
-    SystemEventDef(const std::string& m, const std::string& n,
-                   const std::string& d, EventLevel l)
-        : moduleName(m), name(n), description(d), level(l) {}
-};
-
-// ============================================================
 // 事件值对象 — 自包含，创建时指定等级，联动由引擎配置表决定
 // ============================================================
 struct Event {
