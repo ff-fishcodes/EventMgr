@@ -45,11 +45,13 @@ public:
                       const std::string& alarmField, bool isActive,
                       EventLevel fallbackLevel = EventLevel::Info);
 
-    // ========= 系统事件定义（启动阶段配置）=========
+    // ========= 报警定义注册（启动阶段配置）=========
 
-    // 注册一条系统事件定义，供 triggerAlarm 按模块名+alarmField 查等级+描述
-    void addSystemEventDef(const std::string& moduleName, const std::string& name,
-                           const std::string& description, EventLevel level);
+    // 统一注册设备事件或系统事件
+    void registerAlarmDef(const std::string& deviceName, int frameID,
+                          const std::string& alarmField,
+                          const std::string& description,
+                          EventLevel level, bool isSystem = false);
 
     // ========= 联动配置门面（业务代码不直接依赖 LinkageEngine）=========
 

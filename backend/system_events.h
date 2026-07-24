@@ -5,28 +5,26 @@
 #include <vector>
 
 // ============================================================
-// 系统事件定义表
+// 统一报警定义注册表
 //
-// 后端自行监测产生的事件（通信断连、磁盘满等）在此登记。
-// 由外部业务代码在启动阶段通过 ExternalAPI::addSystemEventDef() 注册，
-// 内部直接存储为 AlarmDef（isSystem=true，id="模块名-0-事件名"）。
-//
-// 线程安全说明：注册在启动阶段完成，查询在运行阶段进行，
-// 假定所有注册先于任何触发发生，无需额外加锁。
+// 设备事件和系统事件通过同一接口注册，内部存储为 AlarmDef。
+// 注册在启动阶段完成，查询在运行阶段进行。
 // ============================================================
 
-// 注册一条系统事件定义（启动阶段调用，内部构造 AlarmDef）
-void addSystemEventDef(const std::string& moduleName, const std::string& name,
-                       const std::string& description, EventLevel level);
+// 注册一条报警定义（设备或系统事件）
+// ID 格式: "deviceName-frameID-alarmField"
+void registerAlarmDef(const std::string& deviceName, int frameID,
+                      const std::string& alarmField,
+                      const std::string& description,
+                      EventLevel level, bool isSystem);
 
-// 获取当前已注册的系统事件定义列表
-const std::vector<AlarmDef>& getSystemEventDefs();
+// 按完整 EventId 查找，未找到返回 NULL
+const AlarmDef* findAlarmDef(const std::string& eventId);
 
-// 按模块名+事件名查找系统事件定义，未找到时返回 NULL
-const AlarmDef* findSystemEventDef(const std::string& moduleName,
-                                    const std::string& name);
+// 获取所有已注册的报警定义
+const std::vector<AlarmDef>& getRegisteredAlarmDefs();
 
-// 清空所有系统事件定义（测试/重启用）
-void clearSystemEventDefs();
+// 清空（测试/重启用）
+void clearRegisteredAlarmDefs();
 
 #endif // SYSTEM_EVENTS_H

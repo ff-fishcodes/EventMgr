@@ -2,7 +2,6 @@
 #include "event_manager.h"
 #include "config_manager.h"
 #include "linkage_engine.h"
-#include "stubs/alarm_catalog.h"
 #include "stubs/log_writer.h"
 #include "system_events.h"
 #include <sstream>
@@ -49,28 +48,17 @@ void ExternalAPI::triggerAlarm(const std::string& deviceName, int frameID,
     idStr << deviceName << "-" << frameID << "-" << alarmField;
     std::string targetId = idStr.str();
 
-    // 1. 查报警目录（按完整 EventId）
-    std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();
-    for (std::vector<AlarmDef>::const_iterator it = defs.begin();
-         it != defs.end(); ++it) {
-        if (it->id == targetId) {
-            addEvent(createAlarm(deviceName, frameID, alarmField,
-                                 it->originalLevel, it->description));
-            return;
-        }
-    }
-
-    // 2. 查系统事件定义（按 deviceName=模块名 + alarmField）
-    const AlarmDef* sysDef = findSystemEventDef(deviceName, alarmField);
-    if (sysDef) {
+    // 统一查已注册的报警定义（设备+系统）
+    const AlarmDef* def = findAlarmDef(targetId);
+    if (def) {
         Event event = createAlarm(deviceName, frameID, alarmField,
-                                  sysDef->originalLevel, deviceName + "-" + sysDef->description);
-        event.source = EventSource::System;
+                                  def->originalLevel, def->description);
+        event.source = def->isSystem ? EventSource::System : EventSource::Device;
         addEvent(event);
         return;
     }
 
-    // 3. 都找不到 → 用调用方传入的 fallbackLevel，标记 Unknown，记日志
+    // 未定义 → 用 fallbackLevel，标记 Unknown，记日志
     {
         std::ostringstream warn;
         warn << "事件未在目录/系统事件中定义: " << targetId
@@ -86,11 +74,11 @@ void ExternalAPI::addEvent(const Event& event) {
     eventMgr_.processAddEvent(event);
 }
 
-void ExternalAPI::addSystemEventDef(const std::string& moduleName,
-                                     const std::string& name,
+void ExternalAPI::registerAlarmDef(const std::string& deviceName, int frameID,
+                                     const std::string& alarmField,
                                      const std::string& description,
-                                     EventLevel level) {
-    ::addSystemEventDef(moduleName, name, description, level);
+                                     EventLevel level, bool isSystem) {
+    ::registerAlarmDef(deviceName, frameID, alarmField, description, level, isSystem);
 }
 
 void ExternalAPI::registerAction(const std::string& name,
@@ -136,14 +124,9 @@ std::vector<Event> ExternalAPI::getActiveEvents() const {
 }
 
 std::vector<AlarmDef> ExternalAPI::getAlarmCatalog() const {
-    // 1. 设备报警定义（桩）
-    std::vector<AlarmDef> defs = AlarmCatalog::getAllDefinitions();
+    std::vector<AlarmDef> defs = getRegisteredAlarmDefs();
 
-    // 2. 系统事件定义（已是 AlarmDef，直接合并）
-    const std::vector<AlarmDef>& sysDefs = getSystemEventDefs();
-    defs.insert(defs.end(), sysDefs.begin(), sysDefs.end());
-
-    // 3. 合并 ConfigManager 当前的降级/屏蔽状态
+    // 合并 ConfigManager 当前的降级/屏蔽状态
     for (std::vector<AlarmDef>::iterator it = defs.begin();
          it != defs.end(); ++it) {
         if (configMgr_.hasDowngrade(it->id)) {

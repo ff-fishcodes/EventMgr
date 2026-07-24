@@ -610,7 +610,7 @@ void AlarmCatalogWidgetTest::initTestCase() {
 void AlarmCatalogWidgetTest::init() {
     ConfigManager::instance().clearAll();
     LinkageEngine::instance().clearAll();
-    clearSystemEventDefs();
+    clearRegisteredAlarmDefs();
     ActionRegistry::setup();
     EventManager::instance().setNotifyCallback(EventManager::NotifyCallback());
     LinkageEngine::instance().setFallback(LinkageEngine::FallbackCallback());
