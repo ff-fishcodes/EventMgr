@@ -526,7 +526,7 @@ void AlarmCatalogWidget::on_applyBtn_clicked() {
 
         if (config.originalDowngraded != config.downgraded) {
             if (config.downgraded) {
-                bridge_->setDowngrade(pending.key(), 4);
+                bridge_->setDowngrade(pending.key());
             } else {
                 bridge_->removeDowngrade(pending.key());
             }

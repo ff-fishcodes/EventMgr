@@ -25,8 +25,9 @@ public:
 
     // ========= 降级相关 =========
 
-    // 设置降级：将指定事件的报警等级降级为 newLevel
-    void setDowngrade(const EventId& id, EventLevel newLevel);
+    // 设置降级：默认降至最低等级 Info，也可显式指定目标等级
+    void setDowngrade(const EventId& id,
+                      EventLevel newLevel = EventLevel::Info);
 
     // 取消降级
     void removeDowngrade(const EventId& id);

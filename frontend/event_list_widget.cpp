@@ -73,7 +73,7 @@ void EventListWidget::renderEvents(QVector<BackendBridge::EventEntry> events) {
         downgradeCb->setChecked(e.downgraded);
         QString rowId = e.id;
         connect(downgradeCb, &QCheckBox::clicked, this, [this, rowId](bool checked) {
-            if (checked) bridge_->setDowngrade(rowId, 4);
+            if (checked) bridge_->setDowngrade(rowId);
             else         bridge_->removeDowngrade(rowId);
             refresh();
         });

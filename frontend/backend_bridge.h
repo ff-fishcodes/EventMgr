@@ -47,7 +47,8 @@ public:
     QVector<CatalogEntry> getCatalog() const;
 
     // 配置操作
-    void setDowngrade(const QString& id, int newLevel);
+    void setDowngrade(const QString& id,
+                      int newLevel = static_cast<int>(EventLevel::Info));
     void removeDowngrade(const QString& id);
     void setShield(const QString& id);
     void clearShield(const QString& id);
