@@ -16,6 +16,7 @@
 #include <QStyle>
 #include <QTableWidget>
 #include <QTabWidget>
+#include <QTreeWidget>
 
 #include "action_registry.h"
 #include "alarm_catalog_widget.h"
@@ -44,26 +45,81 @@ T* requiredChild(QObject* parent, const char* objectName) {
     return child;
 }
 
-int catalogRow(QTableWidget* table, const QString& eventId) {
-    for (int row = 0; row < table->rowCount(); ++row) {
-        QTableWidgetItem* idItem = table->item(row, 0);
-        if (idItem && idItem->text() == eventId) return row;
+QTreeWidgetItem* catalogItem(QTreeWidget* tree, const QString& eventId) {
+    for (int groupIndex = 0; groupIndex < tree->topLevelItemCount(); ++groupIndex) {
+        QTreeWidgetItem* group = tree->topLevelItem(groupIndex);
+        for (int childIndex = 0; childIndex < group->childCount(); ++childIndex) {
+            QTreeWidgetItem* child = group->child(childIndex);
+            if (child->data(0, Qt::UserRole).toString() == eventId) return child;
+        }
     }
-    QTest::qFail(qPrintable(QString("Catalog row for '%1' was not found")
+    QTest::qFail(qPrintable(QString("Catalog item for '%1' was not found")
                                .arg(eventId)),
+                 __FILE__, __LINE__);
+    return nullptr;
+}
+
+void selectCatalogItem(QTreeWidget* tree, const QString& eventId) {
+    QTreeWidgetItem* item = catalogItem(tree, eventId);
+    if (!item) return;
+    tree->setCurrentItem(item);
+    tree->scrollToItem(item);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+}
+
+QTreeWidgetItem* catalogItemAt(QTreeWidget* tree, int row) {
+    int currentRow = 0;
+    for (int groupIndex = 0; groupIndex < tree->topLevelItemCount(); ++groupIndex) {
+        QTreeWidgetItem* group = tree->topLevelItem(groupIndex);
+        for (int childIndex = 0; childIndex < group->childCount(); ++childIndex) {
+            if (currentRow++ == row) return group->child(childIndex);
+        }
+    }
+    return nullptr;
+}
+
+int catalogRow(QTreeWidget* tree, const QString& eventId) {
+    int row = 0;
+    for (int groupIndex = 0; groupIndex < tree->topLevelItemCount(); ++groupIndex) {
+        QTreeWidgetItem* group = tree->topLevelItem(groupIndex);
+        for (int childIndex = 0; childIndex < group->childCount(); ++childIndex, ++row) {
+            if (group->child(childIndex)->data(0, Qt::UserRole).toString() == eventId)
+                return row;
+        }
+    }
+    QTest::qFail(qPrintable(QString("Catalog row for '%1' was not found").arg(eventId)),
                  __FILE__, __LINE__);
     return -1;
 }
 
-void selectCatalogRow(QTableWidget* table, const QString& eventId) {
-    const int row = catalogRow(table, eventId);
-    table->setCurrentCell(row, 0);
-    table->selectRow(row);
-    QCoreApplication::processEvents(QEventLoop::AllEvents);
+int catalogCurrentRow(QTreeWidget* tree) {
+    QTreeWidgetItem* current = tree->currentItem();
+    if (!current) return -1;
+    return catalogRow(tree, current->data(0, Qt::UserRole).toString());
+}
+
+int catalogRowCount(QTreeWidget* tree) {
+    int count = 0;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+        count += tree->topLevelItem(i)->childCount();
+    return count;
 }
 
 QCheckBox* tableCheckBox(QTableWidget* table, int row, int column) {
     QWidget* cell = table->cellWidget(row, column);
+    QCheckBox* checkBox = qobject_cast<QCheckBox*>(cell);
+    if (!checkBox && cell) checkBox = cell->findChild<QCheckBox*>();
+    if (!checkBox) {
+        QTest::qFail(qPrintable(QString("Checkbox at row %1, column %2 was not found")
+                                   .arg(row).arg(column)),
+                     __FILE__, __LINE__);
+    }
+    return checkBox;
+}
+
+QCheckBox* tableCheckBox(QTreeWidget* tree, int row, int column) {
+    QTreeWidgetItem* item = catalogItemAt(tree, row);
+    QWidget* cell = item ? tree->itemWidget(item, column) : nullptr;
     QCheckBox* checkBox = qobject_cast<QCheckBox*>(cell);
     if (!checkBox && cell) checkBox = cell->findChild<QCheckBox*>();
     if (!checkBox) {
@@ -641,7 +697,7 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     QCoreApplication::processEvents(QEventLoop::AllEvents);
 
     QVERIFY(requiredChild<QSplitter>(&widget, "configSplitter"));
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -661,7 +717,7 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     QCOMPARE(clear->horizontalHeaderItem(0)->text(), QString::fromUtf8("联动动作"));
     QCOMPARE(clear->horizontalHeaderItem(1)->text(), QString::fromUtf8("启用"));
 
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     QVERIFY(selected->text().contains(kBoilerEvent));
     QVERIFY2(!actionTableExposesSourceMetadata(active),
              "The active action table must not expose default/dedicated metadata");
@@ -693,24 +749,27 @@ void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
     QVERIFY2(showsEmptyPhase, "The empty clear phase must be represented as '无联动'");
     QVERIFY2(!hasEnabledSwitch, "The empty clear phase must not expose an enabled switch");
 
-    QTableWidgetItem* linkageCount = catalog->item(catalogRow(catalog, kBoilerEvent), 5);
+    QTreeWidgetItem* linkageCount = catalogItem(catalog, kBoilerEvent);
     QVERIFY2(linkageCount, "The catalog linkage-count cell is missing");
     const BackendBridge::EventActionGroups groups = bridge_.getEventActionGroups(
         kBoilerEvent, static_cast<int>(EventLevel::Emergency));
-    QCOMPARE(linkageCount->text().toInt(),
+    QCOMPARE(linkageCount->text(5).toInt(),
              groups.activeActions.size() + groups.clearActions.size());
-    QCOMPARE(groups.activeActions.size() + groups.clearActions.size(), 2);
+    QCOMPARE(groups.activeActions.size() + groups.clearActions.size(), 3);
 
-    QTableWidgetItem* emptyLinkage =
-        catalog->item(catalogRow(catalog, kOtherEvent), 5);
-    QVERIFY2(emptyLinkage, "The empty catalog linkage cell is missing");
-    QCOMPARE(emptyLinkage->text(), QString::fromUtf8("无"));
+    QTreeWidgetItem* otherLinkage = catalogItem(catalog, kOtherEvent);
+    QVERIFY2(otherLinkage, "The catalog linkage-count cell is missing");
+    const BackendBridge::EventActionGroups otherGroups =
+        bridge_.getEventActionGroups(
+            kOtherEvent, static_cast<int>(EventLevel::Serious));
+    QCOMPARE(otherLinkage->text(5).toInt(),
+             otherGroups.activeActions.size() + otherGroups.clearActions.size());
 }
 
 void AlarmCatalogWidgetTest::preservesEditsAcrossSelectionChanges() {
     AlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -719,7 +778,7 @@ void AlarmCatalogWidgetTest::preservesEditsAcrossSelectionChanges() {
     QLabel* status = requiredChild<QLabel>(&widget, "statusLabel");
     QVERIFY(status);
 
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
     toggle(tableCheckBox(catalog, boilerRow, 4), true);
@@ -727,8 +786,8 @@ void AlarmCatalogWidgetTest::preservesEditsAcrossSelectionChanges() {
                          actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
            false);
 
-    selectCatalogRow(catalog, kOtherEvent);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kOtherEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 3)), true);
     QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 4)), true);
     QCOMPARE(checked(tableCheckBox(
@@ -755,7 +814,7 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
 
     AlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -785,7 +844,7 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
     QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kUntouchedEvent.toStdString(), "cooler_stop", true));
 
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int row = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, row, 3), true);
     toggle(tableCheckBox(catalog, row, 4), true);
@@ -835,7 +894,7 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
         kBoilerEvent.toStdString(), {"cooler_fan"}, {"buzzer_alert"});
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -847,7 +906,7 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
     QVERIFY(status);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int row = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, row, 3), true);
     toggle(tableCheckBox(catalog, row, 4), true);
@@ -871,8 +930,8 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
     QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", true));
     const int reloadedRow = catalogRow(catalog, kBoilerEvent);
-    QCOMPARE(catalog->currentRow(), reloadedRow);
-    QCOMPARE(catalog->item(reloadedRow, 0)->text(), kBoilerEvent);
+    QCOMPARE(catalogCurrentRow(catalog), reloadedRow);
+    QCOMPARE(catalogItemAt(catalog, reloadedRow)->text(0), kBoilerEvent);
     QVERIFY(selected->text().contains(kBoilerEvent));
     QCOMPARE(checked(tableCheckBox(
                  catalog, catalogRow(catalog, kBoilerEvent), 3)), true);
@@ -894,7 +953,7 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
     ConfigManager::instance().setShield(kOtherEvent.toStdString());
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -904,7 +963,7 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
     QVERIFY(status);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
     toggle(tableCheckBox(catalog, boilerRow, 4), true);
@@ -922,8 +981,8 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
     QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     const int reloadedRow = catalogRow(catalog, kBoilerEvent);
-    QCOMPARE(catalog->currentRow(), reloadedRow);
-    QCOMPARE(catalog->item(reloadedRow, 0)->text(), kBoilerEvent);
+    QCOMPARE(catalogCurrentRow(catalog), reloadedRow);
+    QCOMPARE(catalogItemAt(catalog, reloadedRow)->text(0), kBoilerEvent);
     QVERIFY(selected->text().contains(kBoilerEvent));
     QCOMPARE(checked(tableCheckBox(
                  catalog, catalogRow(catalog, kBoilerEvent), 3)), false);
@@ -937,7 +996,7 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
              true);
     QVERIFY(!apply->isEnabled());
     const int catalogSize = bridge_.getCatalog().size();
-    QCOMPARE(catalog->rowCount(), catalogSize);
+    QCOMPARE(catalogRowCount(catalog), catalogSize);
     QCOMPARE(status->text(),
              QString::fromUtf8("共 %1 个报警定义，当前屏蔽 %2 个")
                  .arg(catalogSize)
@@ -947,7 +1006,7 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
 void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -957,7 +1016,7 @@ void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
     QVERIFY(status);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
     toggle(tableCheckBox(catalog, boilerRow, 4), true);
@@ -971,7 +1030,7 @@ void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
     QCoreApplication::processEvents(QEventLoop::AllEvents);
 
     QCOMPARE(selected->text(), kBoilerEvent);
-    QCOMPARE(catalog->currentRow(), boilerRow);
+    QCOMPARE(catalogCurrentRow(catalog), boilerRow);
     QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 3)), true);
     QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 4)), true);
     QCOMPARE(checked(tableCheckBox(
@@ -989,7 +1048,7 @@ void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
 void AlarmCatalogWidgetTest::cleanRequestLeaveKeepsVisibleSnapshot() {
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QLabel* selected = requiredChild<QLabel>(&widget, "selectedEventLabel");
     QVERIFY(selected);
@@ -997,7 +1056,7 @@ void AlarmCatalogWidgetTest::cleanRequestLeaveKeepsVisibleSnapshot() {
     QVERIFY(status);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     const QString statusBefore = status->text();
 
@@ -1006,7 +1065,7 @@ void AlarmCatalogWidgetTest::cleanRequestLeaveKeepsVisibleSnapshot() {
 
     QVERIFY(ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
     QCOMPARE(selected->text(), kBoilerEvent);
-    QCOMPARE(catalog->currentRow(), boilerRow);
+    QCOMPARE(catalogCurrentRow(catalog), boilerRow);
     QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 4)), false);
     QVERIFY(!apply->isEnabled());
     QCOMPARE(status->text(), statusBefore);
@@ -1017,7 +1076,7 @@ void AlarmCatalogWidgetTest::requestLeaveAppliesDirtyChanges() {
         kBoilerEvent.toStdString(), {"cooler_fan"}, {"buzzer_alert"});
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -1029,7 +1088,7 @@ void AlarmCatalogWidgetTest::requestLeaveAppliesDirtyChanges() {
     QVERIFY(status);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
     toggle(tableCheckBox(catalog, boilerRow, 4), true);
@@ -1051,9 +1110,9 @@ void AlarmCatalogWidgetTest::requestLeaveAppliesDirtyChanges() {
     QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", false));
     QCOMPARE(selected->text(), kBoilerEvent);
-    QCOMPARE(catalog->currentRow(), catalogRow(catalog, kBoilerEvent));
-    QCOMPARE(checked(tableCheckBox(catalog, catalog->currentRow(), 3)), true);
-    QCOMPARE(checked(tableCheckBox(catalog, catalog->currentRow(), 4)), true);
+    QCOMPARE(catalogCurrentRow(catalog), catalogRow(catalog, kBoilerEvent));
+    QCOMPARE(checked(tableCheckBox(catalog, catalogCurrentRow(catalog), 3)), true);
+    QCOMPARE(checked(tableCheckBox(catalog, catalogCurrentRow(catalog), 4)), true);
     QCOMPARE(checked(tableCheckBox(
                  active,
                  actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1)),
@@ -1070,7 +1129,7 @@ void AlarmCatalogWidgetTest::requestLeaveDiscardsDirtyChanges() {
     ConfigManager::instance().setShield(kOtherEvent.toStdString());
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -1080,7 +1139,7 @@ void AlarmCatalogWidgetTest::requestLeaveDiscardsDirtyChanges() {
     QVERIFY(status);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
     toggle(tableCheckBox(catalog, boilerRow, 4), true);
@@ -1098,9 +1157,9 @@ void AlarmCatalogWidgetTest::requestLeaveDiscardsDirtyChanges() {
     QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     QCOMPARE(selected->text(), kBoilerEvent);
-    QCOMPARE(catalog->currentRow(), catalogRow(catalog, kBoilerEvent));
-    QCOMPARE(checked(tableCheckBox(catalog, catalog->currentRow(), 3)), false);
-    QCOMPARE(checked(tableCheckBox(catalog, catalog->currentRow(), 4)), false);
+    QCOMPARE(catalogCurrentRow(catalog), catalogRow(catalog, kBoilerEvent));
+    QCOMPARE(checked(tableCheckBox(catalog, catalogCurrentRow(catalog), 3)), false);
+    QCOMPARE(checked(tableCheckBox(catalog, catalogCurrentRow(catalog), 4)), false);
     QCOMPARE(checked(tableCheckBox(catalog, catalogRow(catalog, kOtherEvent), 4)), true);
     QCOMPARE(checked(tableCheckBox(
                  active,
@@ -1109,14 +1168,14 @@ void AlarmCatalogWidgetTest::requestLeaveDiscardsDirtyChanges() {
     QVERIFY(!apply->isEnabled());
     QCOMPARE(status->text(),
              QString::fromUtf8("共 %1 个报警定义，当前屏蔽 %2 个")
-                 .arg(catalog->rowCount())
+                 .arg(catalogRowCount(catalog))
                  .arg(bridge_.shieldCount()));
 }
 
 void AlarmCatalogWidgetTest::requestLeaveCancelKeepsStagedState() {
     TestableAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -1126,7 +1185,7 @@ void AlarmCatalogWidgetTest::requestLeaveCancelKeepsStagedState() {
     QVERIFY(status);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     const int boilerRow = catalogRow(catalog, kBoilerEvent);
     toggle(tableCheckBox(catalog, boilerRow, 3), true);
     toggle(tableCheckBox(catalog, boilerRow, 4), true);
@@ -1144,7 +1203,7 @@ void AlarmCatalogWidgetTest::requestLeaveCancelKeepsStagedState() {
     QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     QCOMPARE(selected->text(), kBoilerEvent);
-    QCOMPARE(catalog->currentRow(), boilerRow);
+    QCOMPARE(catalogCurrentRow(catalog), boilerRow);
     QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 3)), true);
     QCOMPARE(checked(tableCheckBox(catalog, boilerRow, 4)), true);
     QCOMPARE(checked(tableCheckBox(
@@ -1160,13 +1219,13 @@ void AlarmCatalogWidgetTest::applySkipsActionRephasedAfterLoad() {
         kBoilerEvent.toStdString(), {}, {"buzzer_alert"});
     AlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* clear = requiredChild<QTableWidget>(&widget, "clearActionTable");
     QVERIFY(clear);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     toggle(tableCheckBox(clear,
                          actionRow(clear, "buzzer_alert", QString::fromUtf8("蜂鸣器")), 1),
            false);
@@ -1191,13 +1250,13 @@ void AlarmCatalogWidgetTest::applyPreservesUntouchedActionChangedAfterLoad() {
         kBoilerEvent.toStdString(), {"cooler_fan", "cooler_stop"}, {});
     AlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     toggle(tableCheckBox(active,
                          actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
            false);
@@ -1218,7 +1277,7 @@ void AlarmCatalogWidgetTest::applyKeepsSameActionPhasesIndependent() {
         kBoilerEvent.toStdString(), {"cooler_fan"}, {"cooler_fan"});
     AlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QVERIFY(active);
@@ -1226,7 +1285,7 @@ void AlarmCatalogWidgetTest::applyKeepsSameActionPhasesIndependent() {
     QVERIFY(clear);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     toggle(tableCheckBox(active,
                          actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
            false);
@@ -1247,7 +1306,7 @@ void AlarmCatalogWidgetTest::applyKeepsSameActionPhasesIndependent() {
 void AlarmCatalogWidgetTest::reentrantReloadDoesNotPromptTwice() {
     ReentrantAlarmCatalogWidget widget(&bridge_);
     widget.show();
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QVERIFY(catalog);
     QPushButton* apply = requiredChild<QPushButton>(&widget, "applyBtn");
     QVERIFY(apply);
@@ -1328,7 +1387,7 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
         {"buzzer_alert"});
 
     AlarmCatalogWidget widget(&bridge_);
-    QTableWidget* catalog = requiredChild<QTableWidget>(&widget, "catalogTable");
+    QTreeWidget* catalog = requiredChild<QTreeWidget>(&widget, "catalogTree");
     QTableWidget* active = requiredChild<QTableWidget>(&widget, "activeActionTable");
     QTableWidget* clear = requiredChild<QTableWidget>(&widget, "clearActionTable");
     QLabel* selected = requiredChild<QLabel>(&widget, "selectedEventLabel");
@@ -1342,7 +1401,7 @@ void AlarmCatalogWidgetTest::capturesResponsiveScreenshots() {
     widget.resize(1280, 760);
     widget.show();
     processPendingLayouts(&widget);
-    selectCatalogRow(catalog, kBoilerEvent);
+    selectCatalogItem(catalog, kBoilerEvent);
     processPendingLayouts(&widget);
     QCOMPARE(selected->text(), kBoilerEvent);
     const int primaryRow = actionRowByInternalName(
