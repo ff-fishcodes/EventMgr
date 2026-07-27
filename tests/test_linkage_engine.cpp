@@ -170,6 +170,7 @@ private slots:
     void keepsActiveAndClearActionsIndependent();
     void isolatesDisableStateByEventActionAndPhase();
     void storesActionSwitchesByEventActionAndPhase();
+    void skipsActionsDisabledThroughConfigManager();
     void suppressesInfoActionsAndFallback();
     void invokesFallbackWithoutHoldingConfigurationLock();
     void releasesReplacedCallbacksWithoutHoldingConfigurationLock();
@@ -184,7 +185,7 @@ private:
 };
 
 LinkageEngineTest::LinkageEngineTest(QObject* parent)
-    : QObject(parent), config_(), engine_() {}
+    : QObject(parent), config_(), engine_(config_) {}
 
 LinkageEngineTest::~LinkageEngineTest() {}
 
@@ -294,8 +295,8 @@ void LinkageEngineTest::isolatesDisableStateByEventActionAndPhase() {
     engine_.registerAction("other", "other", []() {});
     engine_.configureEvent("E-1-A", {"shared", "other"}, {"shared", "other"});
     engine_.configureEvent("E-2-A", {"shared", "other"}, {"shared", "other"});
-    engine_.disableAction("E-1-A", "shared", true);
-    engine_.disableAction("E-1-A", "other", false);
+    config_.setActionEnabled("E-1-A", "shared", true, false);
+    config_.setActionEnabled("E-1-A", "other", false, false);
 
     const LinkageEngine::EventActionGroups first =
         engine_.getEventActionGroups("E-1-A", EventLevel::Emergency);
@@ -315,7 +316,7 @@ void LinkageEngineTest::isolatesDisableStateByEventActionAndPhase() {
     QVERIFY(enabledFor(second.activeActions, "other"));
     QVERIFY(enabledFor(second.clearActions, "other"));
 
-    engine_.enableAction("E-1-A", "shared", true);
+    config_.setActionEnabled("E-1-A", "shared", true, true);
     const LinkageEngine::EventActionGroups reenabled =
         engine_.getEventActionGroups("E-1-A", EventLevel::Emergency);
     QCOMPARE(names(reenabled.activeActions), QStringList() << "shared" << "other");
@@ -342,6 +343,26 @@ void LinkageEngineTest::storesActionSwitchesByEventActionAndPhase() {
 
     config_.clearAll();
     QVERIFY(config_.isActionEnabled("E-1-A", "other", false));
+}
+
+void LinkageEngineTest::skipsActionsDisabledThroughConfigManager() {
+    QAtomicInt invoked(0);
+    engine_.registerAction("shared", "shared", [&invoked]() { invoked.ref(); });
+    engine_.configureEvent("E-1-A", {"shared"}, {"shared"});
+
+    Event event = makeEvent("E-1-A", EventLevel::Emergency);
+    config_.setActionEnabled(event.id, "shared", true, false);
+
+    engine_.executeActive(event);
+    engine_.clearAll();
+    QCOMPARE(invoked.loadAcquire(), 0);
+
+    engine_.registerAction("shared", "shared", [&invoked]() { invoked.ref(); });
+    engine_.configureEvent("E-1-A", {"shared"}, {"shared"});
+    config_.setActionEnabled(event.id, "shared", true, true);
+    engine_.executeActive(event);
+    engine_.clearAll();
+    QCOMPARE(invoked.loadAcquire(), 1);
 }
 
 void LinkageEngineTest::suppressesInfoActionsAndFallback() {
@@ -565,8 +586,8 @@ void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
                 engine_.setLevelDefault(EventLevel::Emergency,
                                         {"writer_b", "shared", "writer_b"},
                                         {"shared", "writer_a", "shared"});
-                engine_.disableAction("E-1-A", "shared", true);
-                engine_.enableAction("E-1-A", "shared", false);
+                config_.setActionEnabled("E-1-A", "shared", true, false);
+                config_.setActionEnabled("E-1-A", "shared", false, true);
             } else {
                 engine_.configureEvent("E-1-A",
                                        {"writer_b", "shared", "writer_b"},
@@ -574,8 +595,8 @@ void LinkageEngineTest::supportsConcurrentConfigurationQueryAndExecution() {
                 engine_.setLevelDefault(EventLevel::Emergency,
                                         {"shared", "writer_a", "shared"},
                                         {"writer_b", "shared", "writer_b"});
-                engine_.enableAction("E-1-A", "shared", true);
-                engine_.disableAction("E-1-A", "shared", false);
+                config_.setActionEnabled("E-1-A", "shared", true, true);
+                config_.setActionEnabled("E-1-A", "shared", false, false);
             }
         }
     });

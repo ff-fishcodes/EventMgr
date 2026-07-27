@@ -1,4 +1,5 @@
 #include "linkage_engine.h"
+#include "config_manager.h"
 #include <QDebug>
 #include <QMutexLocker>
 #include <QRunnable>
@@ -86,15 +87,12 @@ LinkageEngine::LevelActionConfig::LevelActionConfig(
 
 LinkageEngine::LevelActionConfig::~LevelActionConfig() {}
 
-LinkageEngine::LinkageEngine() {
+LinkageEngine::LinkageEngine(ConfigManager& configMgr)
+    : configMgr_(configMgr) {
     linkagePool_.setMaxThreadCount(4);
 }
 
 LinkageEngine::~LinkageEngine() {}
-
-std::string LinkageEngine::makeDisableKey(const EventId& id, const std::string& name) {
-    return id + "|" + name;
-}
 
 // ============================================================
 // 能力注册
@@ -222,7 +220,7 @@ void LinkageEngine::executeNames(const std::vector<std::string>& names,
         // 第二线性化点：按当前禁用状态快照名称对应的不可变回调句柄。
         for (std::vector<std::string>::const_iterator it = names.begin();
              it != names.end(); ++it) {
-            if (isActionDisabledLocked(eventId, *it, isActive)) continue;
+            if (!configMgr_.isActionEnabled(eventId, *it, isActive)) continue;
             std::unordered_map<std::string,
                 std::shared_ptr<const ActionCallback> >::const_iterator found =
                     actionTable_.find(*it);
@@ -234,39 +232,6 @@ void LinkageEngine::executeNames(const std::vector<std::string>& names,
          it != callbacks.end(); ++it) {
         linkagePool_.start(new ActionTask(*it));
     }
-}
-
-// ============================================================
-// 联动禁用（分产生/消除两侧，不持久化）
-// ============================================================
-
-void LinkageEngine::disableAction(const EventId& eventId,
-                                   const std::string& name, bool isActive) {
-    QMutexLocker locker(&configMutex_);
-    std::string key = makeDisableKey(eventId, name);
-    if (isActive) disabledActive_.insert(key);
-    else          disabledClear_.insert(key);
-}
-
-void LinkageEngine::enableAction(const EventId& eventId,
-                                  const std::string& name, bool isActive) {
-    QMutexLocker locker(&configMutex_);
-    std::string key = makeDisableKey(eventId, name);
-    if (isActive) disabledActive_.erase(key);
-    else          disabledClear_.erase(key);
-}
-
-bool LinkageEngine::isActionDisabled(const EventId& eventId,
-                                      const std::string& name, bool isActive) const {
-    QMutexLocker locker(&configMutex_);
-    return isActionDisabledLocked(eventId, name, isActive);
-}
-
-bool LinkageEngine::isActionDisabledLocked(
-        const EventId& eventId, const std::string& name, bool isActive) const {
-    std::string key = makeDisableKey(eventId, name);
-    if (isActive) return disabledActive_.find(key) != disabledActive_.end();
-    else          return disabledClear_.find(key) != disabledClear_.end();
 }
 
 // ============================================================
@@ -285,7 +250,7 @@ std::vector<LinkageEngine::ActionInfo> LinkageEngine::actionInfosLocked(
             (displayIt != displayNames_.end()) ? displayIt->second : *it;
         result.push_back(ActionInfo(
             *it, displayName,
-            !isActionDisabledLocked(eventId, *it, isActive)));
+            configMgr_.isActionEnabled(eventId, *it, isActive)));
     }
     return result;
 }
@@ -321,7 +286,5 @@ void LinkageEngine::clearAll() {
         displayNames_.clear();
         eventConfig_.clear();
         levelDefaults_.clear();
-        disabledActive_.clear();
-        disabledClear_.clear();
     }
 }

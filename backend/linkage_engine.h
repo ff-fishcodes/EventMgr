@@ -22,6 +22,8 @@
 //
 // 运行时: addEvent → resolveNames → 查 actionTable_ → 过滤禁用 → 线程池异步执行
 // ============================================================
+class ConfigManager;
+
 class LinkageEngine {
 public:
     using ActionCallback   = std::function<void()>;
@@ -53,7 +55,7 @@ public:
     static LinkageEngine& instance();
     static void setInstance(LinkageEngine* eng);
 
-    LinkageEngine();
+    explicit LinkageEngine(ConfigManager& configMgr);
     ~LinkageEngine();
 
     LinkageEngine(const LinkageEngine&) = delete;
@@ -74,11 +76,6 @@ public:
     void executeActive(const Event& event);
     void executeCleared(const Event& event);
     void clearAll();
-
-    // 联动禁用（isActive=true 产生侧, isActive=false 消除侧）
-    void disableAction(const EventId& eventId, const std::string& name, bool isActive);
-    void enableAction(const EventId& eventId, const std::string& name, bool isActive);
-    bool isActionDisabled(const EventId& eventId, const std::string& name, bool isActive) const;
 
     // 按阶段查询某事件的有效联动配置（供前端配置页使用）
     EventActionGroups getEventActionGroups(const EventId& eventId,
@@ -102,13 +99,8 @@ private:
     std::vector<ActionInfo> actionInfosLocked(
         const EventId& eventId, const std::vector<std::string>& names,
         bool isActive) const;
-    bool isActionDisabledLocked(const EventId& eventId,
-                                const std::string& name, bool isActive) const;
     void executeNames(const std::vector<std::string>& names,
                       const EventId& eventId, bool isActive);
-
-    // 联动动作禁用键: "eventId|actionName"
-    static std::string makeDisableKey(const EventId& id, const std::string& name);
 
     // 不可变回调句柄允许锁内安全快照，回调对象本身只在锁外销毁。
     std::unordered_map<std::string,
@@ -119,11 +111,9 @@ private:
     std::unordered_map<int, LevelActionConfig> levelDefaults_;
     std::shared_ptr<const FallbackCallback> fallback_;
 
-    // 产生侧/消除侧禁用的联动动作（不持久化，重启清空）
-    std::unordered_set<std::string> disabledActive_;
-    std::unordered_set<std::string> disabledClear_;
+    ConfigManager& configMgr_;
 
-    // 配置互斥锁保护动作表、显示名、事件/等级配置、回退函数和两侧禁用集合。
+    // 配置互斥锁保护动作表、显示名、事件/等级配置和回退函数。
     // linkagePool_ 的生命周期与任务调度不由此锁保护。
     mutable QMutex configMutex_;
     QThreadPool linkagePool_;

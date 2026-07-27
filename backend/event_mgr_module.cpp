@@ -9,7 +9,7 @@ void EventMgrModule::init() {
     if (api_) return;  // 已初始化
 
     configMgr_  = new ConfigManager();
-    linkageEng_ = new LinkageEngine();
+    linkageEng_ = new LinkageEngine(*configMgr_);
     eventMgr_   = new EventManager(*configMgr_, *linkageEng_);
     api_        = new ExternalAPI(*eventMgr_, *configMgr_);
 
