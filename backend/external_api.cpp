@@ -99,6 +99,18 @@ void ExternalAPI::setLevelDefault(EventLevel level,
     LinkageEngine::instance().setLevelDefault(level, activeActions, clearActions);
 }
 
+void ExternalAPI::setEventActionEnabled(const EventId& eventId,
+                                        const std::string& actionName,
+                                        bool isActive, bool enabled) {
+    configMgr_.setActionEnabled(eventId, actionName, isActive, enabled);
+}
+
+bool ExternalAPI::isEventActionEnabled(const EventId& eventId,
+                                       const std::string& actionName,
+                                       bool isActive) const {
+    return configMgr_.isActionEnabled(eventId, actionName, isActive);
+}
+
 void ExternalAPI::clearEvent(const std::string& deviceName, int frameID,
                               const std::string& alarmField) {
     eventMgr_.processClearEvent(deviceName, frameID, alarmField);

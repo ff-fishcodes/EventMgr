@@ -63,6 +63,12 @@ public:
     void setLevelDefault(EventLevel level,
                          const std::vector<std::string>& activeActions,
                          const std::vector<std::string>& clearActions);
+    void setEventActionEnabled(const EventId& eventId,
+                               const std::string& actionName,
+                               bool isActive, bool enabled);
+    bool isEventActionEnabled(const EventId& eventId,
+                              const std::string& actionName,
+                              bool isActive) const;
 
     void addEvent(const Event& event);
     void clearEvent(const std::string& deviceName, int frameID, const std::string& alarmField);

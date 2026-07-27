@@ -129,16 +129,11 @@ int BackendBridge::shieldCount() const {
     return ConfigManager::instance().getShieldCount();
 }
 
-void BackendBridge::disableAction(const QString& eventId,
-                                   const QString& actionName, bool isActive) {
-    LinkageEngine::instance().disableAction(
-        eventId.toStdString(), actionName.toStdString(), isActive);
-}
-
-void BackendBridge::enableAction(const QString& eventId,
-                                  const QString& actionName, bool isActive) {
-    LinkageEngine::instance().enableAction(
-        eventId.toStdString(), actionName.toStdString(), isActive);
+void BackendBridge::setEventActionEnabled(const QString& eventId,
+                                          const QString& actionName,
+                                          bool isActive, bool enabled) {
+    ExternalAPI::instance().setEventActionEnabled(
+        eventId.toStdString(), actionName.toStdString(), isActive, enabled);
 }
 
 BackendBridge::EventActionGroups BackendBridge::getEventActionGroups(

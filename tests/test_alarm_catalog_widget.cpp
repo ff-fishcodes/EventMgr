@@ -581,6 +581,7 @@ private slots:
     void init();
     void cleanup();
 
+    void externalApiOwnsEventActionSwitches();
     void showsSplitCatalogAndPhasedActions();
     void preservesEditsAcrossSelectionChanges();
     void appliesStagedConfigurationDiffs();
@@ -619,6 +620,19 @@ void AlarmCatalogWidgetTest::init() {
 void AlarmCatalogWidgetTest::cleanup() {
     EventManager::instance().setNotifyCallback(EventManager::NotifyCallback());
     LinkageEngine::instance().setFallback(LinkageEngine::FallbackCallback());
+}
+
+void AlarmCatalogWidgetTest::externalApiOwnsEventActionSwitches() {
+    ExternalAPI& api = ExternalAPI::instance();
+    const std::string eventId = kBoilerEvent.toStdString();
+
+    QVERIFY(api.isEventActionEnabled(eventId, "cooler_fan", true));
+    api.setEventActionEnabled(eventId, "cooler_fan", true, false);
+    QVERIFY(!api.isEventActionEnabled(eventId, "cooler_fan", true));
+    QVERIFY(api.isEventActionEnabled(eventId, "cooler_fan", false));
+
+    api.setEventActionEnabled(eventId, "cooler_fan", true, true);
+    QVERIFY(api.isEventActionEnabled(eventId, "cooler_fan", true));
 }
 
 void AlarmCatalogWidgetTest::showsSplitCatalogAndPhasedActions() {
@@ -724,7 +738,7 @@ void AlarmCatalogWidgetTest::preservesEditsAcrossSelectionChanges() {
 
     QVERIFY(!ConfigManager::instance().hasDowngrade(kBoilerEvent.toStdString()));
     QVERIFY(!ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     QVERIFY(apply->isEnabled());
     QVERIFY2(status->text().contains(QString::fromUtf8("未应用")),
@@ -761,14 +775,14 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
     ConfigManager::instance().setShield(kUntouchedEvent.toStdString());
     ConfigManager::instance().setDowngrade(
         kUntouchedEvent.toStdString(), EventLevel::Info);
-    LinkageEngine::instance().disableAction(
-        kUntouchedEvent.toStdString(), "cooler_stop", true);
+    ExternalAPI::instance().setEventActionEnabled(
+        kUntouchedEvent.toStdString(), "cooler_stop", true, false);
     QVERIFY(ConfigManager::instance().isShielded(kUntouchedEvent.toStdString()));
     QVERIFY(ConfigManager::instance().hasDowngrade(kUntouchedEvent.toStdString()));
     QCOMPARE(static_cast<int>(ConfigManager::instance().getEffectiveLevel(
                  kUntouchedEvent.toStdString(), EventLevel::Emergency)),
              static_cast<int>(EventLevel::Info));
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kUntouchedEvent.toStdString(), "cooler_stop", true));
 
     selectCatalogRow(catalog, kBoilerEvent);
@@ -795,9 +809,9 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
     QCOMPARE(phaseActionEnabled(boilerGroups, "cooler_fan", true), false);
     QCOMPARE(phaseActionEnabled(boilerGroups, "cooler_stop", true), true);
     QCOMPARE(phaseActionEnabled(boilerGroups, "buzzer_alert", false), false);
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", false));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", true));
 
     const BackendBridge::EventActionGroups otherGroups =
@@ -810,7 +824,7 @@ void AlarmCatalogWidgetTest::appliesStagedConfigurationDiffs() {
                  kUntouchedEvent.toStdString(), EventLevel::Emergency)),
              static_cast<int>(EventLevel::Info));
     QVERIFY(ConfigManager::instance().isShielded(kUntouchedEvent.toStdString()));
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kUntouchedEvent.toStdString(), "cooler_stop", true));
     QVERIFY(!apply->isEnabled());
     QCOMPARE(status->text(), QString::fromUtf8("配置已应用"));
@@ -850,11 +864,11 @@ void AlarmCatalogWidgetTest::refreshAppliesDirtyChanges() {
 
     QVERIFY(ConfigManager::instance().hasDowngrade(kBoilerEvent.toStdString()));
     QVERIFY(ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", false));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", true));
     const int reloadedRow = catalogRow(catalog, kBoilerEvent);
     QCOMPARE(catalog->currentRow(), reloadedRow);
@@ -905,7 +919,7 @@ void AlarmCatalogWidgetTest::refreshDiscardsDirtyChanges() {
     QVERIFY(!ConfigManager::instance().hasDowngrade(kBoilerEvent.toStdString()));
     QVERIFY(!ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
     QVERIFY(ConfigManager::instance().isShielded(kOtherEvent.toStdString()));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     const int reloadedRow = catalogRow(catalog, kBoilerEvent);
     QCOMPARE(catalog->currentRow(), reloadedRow);
@@ -966,7 +980,7 @@ void AlarmCatalogWidgetTest::refreshCancelKeepsStagedStateAndSelection() {
              false);
     QVERIFY(!ConfigManager::instance().hasDowngrade(kBoilerEvent.toStdString()));
     QVERIFY(!ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     QVERIFY(apply->isEnabled());
     QCOMPARE(status->text(), statusBefore);
@@ -1032,9 +1046,9 @@ void AlarmCatalogWidgetTest::requestLeaveAppliesDirtyChanges() {
 
     QVERIFY(ConfigManager::instance().hasDowngrade(kBoilerEvent.toStdString()));
     QVERIFY(ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", false));
     QCOMPARE(selected->text(), kBoilerEvent);
     QCOMPARE(catalog->currentRow(), catalogRow(catalog, kBoilerEvent));
@@ -1081,7 +1095,7 @@ void AlarmCatalogWidgetTest::requestLeaveDiscardsDirtyChanges() {
     QVERIFY(!ConfigManager::instance().hasDowngrade(kBoilerEvent.toStdString()));
     QVERIFY(!ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
     QVERIFY(ConfigManager::instance().isShielded(kOtherEvent.toStdString()));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     QCOMPARE(selected->text(), kBoilerEvent);
     QCOMPARE(catalog->currentRow(), catalogRow(catalog, kBoilerEvent));
@@ -1127,7 +1141,7 @@ void AlarmCatalogWidgetTest::requestLeaveCancelKeepsStagedState() {
 
     QVERIFY(!ConfigManager::instance().hasDowngrade(kBoilerEvent.toStdString()));
     QVERIFY(!ConfigManager::instance().isShielded(kBoilerEvent.toStdString()));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
     QCOMPARE(selected->text(), kBoilerEvent);
     QCOMPARE(catalog->currentRow(), boilerRow);
@@ -1166,9 +1180,9 @@ void AlarmCatalogWidgetTest::applySkipsActionRephasedAfterLoad() {
         bridge_.getEventActionGroups(kBoilerEvent,
                                      static_cast<int>(EventLevel::Emergency));
     QCOMPARE(phaseActionEnabled(groups, "buzzer_alert", true), true);
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", true));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "buzzer_alert", false));
 }
 
@@ -1188,14 +1202,14 @@ void AlarmCatalogWidgetTest::applyPreservesUntouchedActionChangedAfterLoad() {
                          actionRow(active, "cooler_fan", QString::fromUtf8("调风扇")), 1),
            false);
 
-    LinkageEngine::instance().disableAction(
-        kBoilerEvent.toStdString(), "cooler_stop", true);
+    ExternalAPI::instance().setEventActionEnabled(
+        kBoilerEvent.toStdString(), "cooler_stop", true, false);
     apply->click();
     QCoreApplication::processEvents(QEventLoop::AllEvents);
 
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_stop", true));
 }
 
@@ -1224,9 +1238,9 @@ void AlarmCatalogWidgetTest::applyKeepsSameActionPhasesIndependent() {
                                      static_cast<int>(EventLevel::Emergency));
     QCOMPARE(phaseActionEnabled(groups, "cooler_fan", true), false);
     QCOMPARE(phaseActionEnabled(groups, "cooler_fan", false), true);
-    QVERIFY(LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", true));
-    QVERIFY(!LinkageEngine::instance().isActionDisabled(
+    QVERIFY(!!ExternalAPI::instance().isEventActionEnabled(
         kBoilerEvent.toStdString(), "cooler_fan", false));
 }
 

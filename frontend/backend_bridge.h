@@ -54,9 +54,10 @@ public:
     void clearShield(const QString& id);
     int  shieldCount() const;
 
-    // 联动禁用（isActive=true 产生侧, isActive=false 消除侧）
-    void disableAction(const QString& eventId, const QString& actionName, bool isActive);
-    void enableAction(const QString& eventId, const QString& actionName, bool isActive);
+    // 联动开关（isActive=true 产生侧, isActive=false 消除侧）
+    void setEventActionEnabled(const QString& eventId,
+                               const QString& actionName,
+                               bool isActive, bool enabled);
 
     // 单个阶段的联动能力及启用状态
     struct ActionEntry {

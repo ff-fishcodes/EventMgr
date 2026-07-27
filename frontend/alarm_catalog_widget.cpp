@@ -506,11 +506,8 @@ void AlarmCatalogWidget::applyActionDiffs(
     QMap<QString, bool>::const_iterator action = current.constBegin();
     for (; action != current.constEnd(); ++action) {
         if (original.value(action.key()) == action.value()) continue;
-        if (action.value()) {
-            bridge_->enableAction(eventId, action.key(), isActive);
-        } else {
-            bridge_->disableAction(eventId, action.key(), isActive);
-        }
+        bridge_->setEventActionEnabled(
+            eventId, action.key(), isActive, action.value());
     }
 }
 
