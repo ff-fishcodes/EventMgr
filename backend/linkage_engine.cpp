@@ -174,11 +174,10 @@ std::vector<std::string> LinkageEngine::resolveNamesLocked(
     std::unordered_map<EventId,
         std::pair<std::vector<std::string>, std::vector<std::string> > >::const_iterator
         it = eventConfig_.find(event.id);
-    const std::vector<std::string>& phaseNames =
-        (it != eventConfig_.end())
-            ? (isActive ? it->second.first : it->second.second)
-            : (isActive ? event.activeActions : event.clearActions);
-    appendUnique(phaseNames, seen, result);
+    if (it != eventConfig_.end()) {
+        appendUnique(isActive ? it->second.first : it->second.second,
+                     seen, result);
+    }
 
     return result;
 }
