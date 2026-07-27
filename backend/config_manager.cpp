@@ -58,10 +58,34 @@ int ConfigManager::getShieldCount() const {
     return static_cast<int>(shieldSet_.size());
 }
 
+// ========= 联动开关相关 =========
+
+void ConfigManager::setActionEnabled(const EventId& eventId,
+                                     const std::string& actionName,
+                                     bool isActive, bool enabled) {
+    QMutexLocker locker(&mutex_);
+    std::unordered_set<ActionSwitchKey, ActionSwitchKeyHash>& disabled =
+        isActive ? disabledActiveActions_ : disabledClearActions_;
+    const ActionSwitchKey key(eventId, actionName);
+    if (enabled) disabled.erase(key);
+    else         disabled.insert(key);
+}
+
+bool ConfigManager::isActionEnabled(const EventId& eventId,
+                                    const std::string& actionName,
+                                    bool isActive) const {
+    QMutexLocker locker(&mutex_);
+    const std::unordered_set<ActionSwitchKey, ActionSwitchKeyHash>& disabled =
+        isActive ? disabledActiveActions_ : disabledClearActions_;
+    return disabled.find(ActionSwitchKey(eventId, actionName)) == disabled.end();
+}
+
 // ========= 批量操作 =========
 
 void ConfigManager::clearAll() {
     QMutexLocker locker(&mutex_);
     downgradeMap_.clear();
     shieldSet_.clear();
+    disabledActiveActions_.clear();
+    disabledClearActions_.clear();
 }

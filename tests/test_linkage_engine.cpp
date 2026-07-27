@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "backend/linkage_engine.h"
+#include "backend/config_manager.h"
 
 #include <QAtomicInt>
 #include <QProcess>
@@ -168,6 +169,7 @@ private slots:
     void returnsDefaultsBeforeEventActionsAndDeduplicates();
     void keepsActiveAndClearActionsIndependent();
     void isolatesDisableStateByEventActionAndPhase();
+    void storesActionSwitchesByEventActionAndPhase();
     void suppressesInfoActionsAndFallback();
     void invokesFallbackWithoutHoldingConfigurationLock();
     void releasesReplacedCallbacksWithoutHoldingConfigurationLock();
@@ -177,15 +179,17 @@ private slots:
     void supportsConcurrentConfigurationQueryAndExecution();
 
 private:
+    ConfigManager config_;
     LinkageEngine engine_;
 };
 
 LinkageEngineTest::LinkageEngineTest(QObject* parent)
-    : QObject(parent), engine_() {}
+    : QObject(parent), config_(), engine_() {}
 
 LinkageEngineTest::~LinkageEngineTest() {}
 
 void LinkageEngineTest::init() {
+    config_.clearAll();
     engine_.clearAll();
     engine_.setFallback(LinkageEngine::FallbackCallback());
 }
@@ -318,6 +322,26 @@ void LinkageEngineTest::isolatesDisableStateByEventActionAndPhase() {
     QCOMPARE(names(reenabled.clearActions), QStringList() << "shared" << "other");
     QVERIFY(enabledFor(reenabled.activeActions, "shared"));
     QVERIFY(!enabledFor(reenabled.clearActions, "other"));
+}
+
+void LinkageEngineTest::storesActionSwitchesByEventActionAndPhase() {
+    QVERIFY(config_.isActionEnabled("E-1-A", "shared", true));
+    QVERIFY(config_.isActionEnabled("E-1-A", "shared", false));
+
+    config_.setActionEnabled("E-1-A", "shared", true, false);
+    config_.setActionEnabled("E-1-A", "other", false, false);
+
+    QVERIFY(!config_.isActionEnabled("E-1-A", "shared", true));
+    QVERIFY(config_.isActionEnabled("E-1-A", "shared", false));
+    QVERIFY(config_.isActionEnabled("E-2-A", "shared", true));
+    QVERIFY(config_.isActionEnabled("E-1-A", "other", true));
+    QVERIFY(!config_.isActionEnabled("E-1-A", "other", false));
+
+    config_.setActionEnabled("E-1-A", "shared", true, true);
+    QVERIFY(config_.isActionEnabled("E-1-A", "shared", true));
+
+    config_.clearAll();
+    QVERIFY(config_.isActionEnabled("E-1-A", "other", false));
 }
 
 void LinkageEngineTest::suppressesInfoActionsAndFallback() {

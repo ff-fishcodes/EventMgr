@@ -2,6 +2,8 @@
 #define CONFIG_MANAGER_H
 
 #include "event_types.h"
+#include <functional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <QMutex>
@@ -52,17 +54,52 @@ public:
     // 获取当前被屏蔽的事件数量（用于前端屏蔽计数提示）
     int getShieldCount() const;
 
+    // ========= 联动开关相关 =========
+
+    void setActionEnabled(const EventId& eventId,
+                          const std::string& actionName,
+                          bool isActive, bool enabled);
+    bool isActionEnabled(const EventId& eventId,
+                         const std::string& actionName,
+                         bool isActive) const;
+
     // ========= 批量操作 =========
 
     // 清空所有配置（用于测试/重启）
     void clearAll();
 
 private:
+    struct ActionSwitchKey {
+        EventId eventId;
+        std::string actionName;
+
+        ActionSwitchKey(const EventId& id, const std::string& name)
+            : eventId(id), actionName(name) {}
+
+        bool operator==(const ActionSwitchKey& other) const {
+            return eventId == other.eventId && actionName == other.actionName;
+        }
+    };
+
+    struct ActionSwitchKeyHash {
+        size_t operator()(const ActionSwitchKey& key) const {
+            const size_t h1 = std::hash<std::string>()(key.eventId);
+            const size_t h2 = std::hash<std::string>()(key.actionName);
+            return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+        }
+    };
+
     // 降级映射: EventId → 降级后的等级
     std::unordered_map<EventId, EventLevel> downgradeMap_;
 
     // 屏蔽集合: 被屏蔽的 EventId
     std::unordered_set<EventId> shieldSet_;
+
+    // 仅保存关闭项；未出现的联动默认启用。
+    std::unordered_set<ActionSwitchKey, ActionSwitchKeyHash>
+        disabledActiveActions_;
+    std::unordered_set<ActionSwitchKey, ActionSwitchKeyHash>
+        disabledClearActions_;
 
     mutable QMutex mutex_;  // 保护配置读写并发
 
