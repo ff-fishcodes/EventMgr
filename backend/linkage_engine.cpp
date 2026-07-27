@@ -155,33 +155,6 @@ void LinkageEngine::setLevelDefault(EventLevel level,
 // 名称解析（使用 originalLevel 做等级默认匹配，不受降级影响）
 // ============================================================
 
-std::vector<std::string> LinkageEngine::resolveNamesLocked(
-        const Event& event, bool isActive) const {
-    std::vector<std::string> result;
-    if (event.originalLevel == EventLevel::Info) return result;
-
-    std::unordered_set<std::string> seen;
-
-    // 等级默认动作优先，重复名称保留首次出现的位置。
-    std::unordered_map<int, LevelActionConfig>::const_iterator levelIt =
-        levelDefaults_.find(static_cast<int>(event.originalLevel));
-    if (levelIt != levelDefaults_.end()) {
-        appendUnique(isActive ? levelIt->second.activeActions
-                              : levelIt->second.clearActions,
-                     seen, result);
-    }
-
-    std::unordered_map<EventId,
-        std::pair<std::vector<std::string>, std::vector<std::string> > >::const_iterator
-        it = eventConfig_.find(event.id);
-    if (it != eventConfig_.end()) {
-        appendUnique(isActive ? it->second.first : it->second.second,
-                     seen, result);
-    }
-
-    return result;
-}
-
 std::vector<std::string> LinkageEngine::effectiveConfiguredNamesLocked(
         const EventId& eventId, EventLevel originalLevel, bool isActive) const {
     std::vector<std::string> result;
@@ -218,7 +191,8 @@ void LinkageEngine::executeActive(const Event& event) {
     {
         QMutexLocker locker(&configMutex_);
         // 第一线性化点：同一配置版本的动作名称和 fallback 句柄。
-        names = resolveNamesLocked(event, true);
+        names = effectiveConfiguredNamesLocked(
+            event.id, event.originalLevel, true);
         fallback = fallback_;
     }
     executeNames(names, event.id, true);
@@ -232,7 +206,8 @@ void LinkageEngine::executeCleared(const Event& event) {
     {
         QMutexLocker locker(&configMutex_);
         // 第一线性化点：同一配置版本的动作名称和 fallback 句柄。
-        names = resolveNamesLocked(event, false);
+        names = effectiveConfiguredNamesLocked(
+            event.id, event.originalLevel, false);
         fallback = fallback_;
     }
     executeNames(names, event.id, false);

@@ -96,10 +96,7 @@ private:
     };
 
     // 以下 Locked 辅助函数要求调用者已经持有 configMutex_，不得再次加锁。
-    // 运行时解析在无显式事件配置时还会合并 Event 自带的阶段动作。
-    std::vector<std::string> resolveNamesLocked(const Event& event,
-                                                bool isActive) const;
-    // 查询解析只合并等级默认配置和已登记的事件配置，不使用运行时 Event 回退值。
+    // 合并等级默认配置和已登记的事件配置。
     std::vector<std::string> effectiveConfiguredNamesLocked(
         const EventId& eventId, EventLevel originalLevel, bool isActive) const;
     std::vector<ActionInfo> actionInfosLocked(
