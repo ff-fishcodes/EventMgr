@@ -34,3 +34,28 @@
 - 前端暂存和批量应用流程不变。
 
 详细设计见 `2026-07-28-event-action-switch-config-design.md`。
+
+## 联动动作指定线程执行
+
+### 用户需求
+
+外部注册大量联动动作时，希望获得类似 Qt `connect()` 的线程亲和性：某些动作继续在线程池执行，另一些动作在调用方指定的 QObject 所属线程执行。
+
+### 关键决策
+
+- `registerAction()` 提供线程池与 QObject execution context 两个重载，均返回注册成功与否。
+- context action 通过每 action 私有 dispatcher 和 `Qt::QueuedConnection` 调度；调用方维护 context 生命周期、线程和 event loop。
+- action 名唯一且不可注销、不可替换；同名和非法注册拒绝，不修改已有 registration。
+- context 使用 `QPointer` 非拥有引用；销毁后每次执行尝试安全跳过并尽可能记录日志，配置及显示名保留，同名仍不可重新注册。
+- action 可用性与用户事件开关分离；有效 enabled 为两者合取。不可用项在前端保留，但取消勾选并禁用，不显示说明。
+- callback 保持无参数、fire-and-forget；异常捕获记录，不重试、不传播。
+- 不扩展 fallback，不提供生产清空接口；测试隔离使用测试专用 seam。
+
+### 调用方契约
+
+- context 在注册前完成线程设置，模块不管理或检查目标线程。
+- callback 捕获非拥有引用、裸指针或 `QPointer`，不持有需特定线程析构的对象。
+- callback 不释放捕获对象，且不得长时间阻塞其 context 线程。
+- context 销毁属于调用方逻辑错误；模块只负责避免崩溃和暴露不可用状态。
+
+详细设计见 `2026-07-28-linkage-action-execution-context-design.md`，架构决定见 `docs/adr/0001-context-bound-linkage-actions.md`。
